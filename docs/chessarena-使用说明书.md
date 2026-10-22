@@ -197,10 +197,10 @@ python -m chessarena test agents/my.py --vs agents/li.py --games 10
 ```python
 state.fen          # str  当前局面，标准 FEN
 state.turn         # str  "w" / "b"（白 / 黑）
-state.board        # 8x8 列表，'P'白兵 'p'黑兵 'N'白马 ... '.' 空
+state.board        # 8×8 只读矩阵，'P'白兵 'p'黑兵 'N'白马 ... '.' 空
                    #      行序：board[0] 是第 8 行（黑方底线）
-state.legal_moves  # list[str]  当前所有合法着法，UCI 格式
-state.history      # list[str]  已经走过的着法
+state.legal_moves  # tuple[str, ...]  当前所有合法着法，UCI 格式
+state.history      # tuple[str, ...]  已经走过的着法
 state.is_check     # bool 当前是否被将军
 state.is_game_over # bool
 state.result       # None 或 "1-0" / "0-1" / "1/2-1/2"
@@ -259,7 +259,7 @@ if r == -1:
 board.get(x, y)        # -> 'P' / 'p' / '.' 
 board.fen              # 整个局面
 board.turn             # 'w' / 'b'
-board.legal_moves      # ['e2e4', 'g1f3', ...]
+board.legal_moves      # ('e2e4', 'g1f3', ...)  tuple，顺序固定
 ```
 
 **等对手（否则你的 while 循环会跑飞）**

@@ -112,8 +112,8 @@ game.board          # Board 只读视图
 game.turn           # 'w' / 'b'
 game.over           # bool
 game.result         # None / '1-0' / '0-1' / '1/2-1/2'
-game.over_reason    # 'checkmate' / 'stalemate' / 'threefold' / 'fifty' / 'insufficient' / 'resign' / 'timeout' / 'retry_exhausted'
-game.history        # ['e2e4', 'e7e5', ...]  已走过的着法
+game.over_reason    # 'checkmate' / 'stalemate' / 'threefold' / 'fifty' / 'insufficient' / 'resign' / 'timeout' / 'retry_exhausted' / 'forfeit' / 'error'
+game.history        # ('e2e4', 'e7e5', ...)  已走过的着法（tuple，只读）
 game.ply            # 走了多少半步
 game.wait_my_turn(timeout=10.0) -> bool     # 阻塞到轮到我；超时返回 False
 game.on("opponent_move", lambda mv: print("对手走了", mv))   # 事件回调（事件表见总表 §8）
@@ -126,20 +126,20 @@ game.pgn()          # 导出 PGN 文本
 board.get(x, y)              # -> 'P' / 'p' / '.'（大写=白，小写=黑）
 board.piece_at("e4")         # -> 'P' / 'p' / '.'（大写=白，小写=黑）
 board.fen                    # 当前 FEN
-board.legal_moves            # ['e2e4', 'g1f3', ...]  当前全部合法着法
+board.legal_moves            # ('e2e4', 'g1f3', ...)  当前全部合法着法（tuple，顺序固定）
 board.moves_from("e2")       # -> ['e3', 'e4']  某个子的可走格（做 UI 高亮/教学用）
-board.matrix()               # 8x8 二维列表，可直接 np.array(...) 喂网络
+board.matrix()               # 8×8 二维列表，可直接 np.array(...) 喂网络
 board.ascii()                # 打印成字符画，终端调试用
 ```
 
 ### `state`（给 AI 的完整快照，一次拿全）
 
 ```python
-state.board        # 同 board.matrix()
+state.board        # 同 board.matrix()（8×8 只读矩阵）
 state.fen
 state.turn
-state.legal_moves
-state.history
+state.legal_moves  # tuple（顺序固定）
+state.history      # tuple
 state.ply
 state.is_check     # 当前是否被将军
 state.last_error   # ★ 上一次被拒的原因（字符串），成功的回合为 None

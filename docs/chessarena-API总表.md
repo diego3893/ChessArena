@@ -52,8 +52,8 @@
 | `turn` | `"w"` / `"b"` | 当前走子方 |
 | `over` | `bool` | 是否结束 |
 | `result` | `None` / `"1-0"` / `"0-1"` / `"1/2-1/2"` | 白视角 |
-| `over_reason` | `str` | `checkmate`/`stalemate`/`threefold`/`fifty`/`insufficient`/`resign`/`timeout`/`retry_exhausted` |
-| `history` | `list[str]` | 已走着的 UCI 序列 |
+| `over_reason` | `str` | `checkmate`/`stalemate`/`threefold`/`fifty`/`insufficient`/`resign`/`timeout`/`retry_exhausted`/`forfeit`/`error` |
+| `history` | `tuple[str, ...]` | 已走着的 UCI 序列（只读、可哈希） |
 | `ply` | `int` | 半步数 |
 | `white` / `black` | `Agent` | 双方对象 |
 | `game_id` | `str` | 唯一标识，用于日志与录像文件命名 |
@@ -78,7 +78,7 @@
 | 取子 | `get(x, y)` | `"P"` / `"p"` / `"."` | 大写白、小写黑 |
 | 按格取 | `piece_at("e4")` | 同上 | |
 | 局面 | `fen` | `str` | 属性 |
-| 合法着法 | `legal_moves` | `list[str]` | 顺序固定，可用于哈希 |
+| 合法着法 | `legal_moves` | `tuple[str, ...]` | 顺序固定（升序），可用于哈希 |
 | 某子可走 | `moves_from("e2")` | `list[str]` | 目标格，如 `["e3","e4"]`，UI 高亮/教学用 |
 | 矩阵 | `matrix()` | `8x8 list[list[str]]` | 行序从黑方底线开始，可直接 `np.array()` |
 | 字符画 | `ascii()` | `str` | 终端调试 |
@@ -93,11 +93,11 @@
 
 | 成员 | 类型 | 说明 |
 |---|---|---|
-| `board` | `8x8 list` | 同 `board.matrix()` |
+| `board` | `8×8 tuple` | 同 `board.matrix()`（只读；`np.array(state.board)` 可直接用） |
 | `fen` | `str` | |
 | `turn` | `"w"` / `"b"` | |
-| `legal_moves` | `list[str]` | |
-| `history` | `list[str]` | |
+| `legal_moves` | `tuple[str, ...]` | 顺序固定（升序） |
+| `history` | `tuple[str, ...]` | |
 | `ply` | `int` | |
 | `is_check` | `bool` | |
 | `is_game_over` | `bool` | 对局是否已结束（与 `game.over` 同值） |

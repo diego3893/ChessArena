@@ -39,26 +39,26 @@
 
 ## 4. Current State
 
-**Confirmed（2026-10-23 复检）：**
+**Confirmed（2026-10-23 01:5x，阶段 0 收尾 + 阶段 1 内核完成）：**
 
-- **代码 0 行**：整个 `ChessArena` 下 0 个 `.py` 文件，不存在 `chessarena/` 包。
-- **依赖已就位**：`chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`websockets` 均可 import；`pytest` / `httpx` 未装。
-- **文档 4 份**位于 `docs/`。三份设计文档都已是"submit 唯一写入口"，但彼此还有 **9 处细节冲突**（P003：说明书 6 处 / 规格 3 处），且总表缺"UCI/HTTP 外部对手注册"一节（P005）。
-- **chessground**：`thirdparty/chessground/` 是 shallow clone（`b4f6050` / `master` / `v10.5.0` / GPL-3.0-or-later），含 `src/`、`assets/*.css`、LICENSE，**不含 `dist/`**。
-- **预构建产物未迁入**：仍躺在旧暂存区 `default-workspace/vendor/chessground/`（`dist/chessground.min.js` 33,291 B、3 套 CSS、LICENSE、package.json）。
-- **Stockfish 未解压**：`thirdparty/stockfish-windows-x86-64-universal.zip` 81,431,614 B，SHA256 `3C8BF1F9…C30B48A7`，内含 `stockfish/stockfish-windows-x86-64-universal.exe`（103,046,300 B）+ `Copying.txt`。
-- **无版本控制**：`ChessArena` 无 `.git`；父目录 `workstation` **也不是** git 仓库（旧记录有误，已纠正）。
-- **写权限问题已消失**：当前 DSH 沙箱工作区就是 `ChessArena`（workspace-write），可直接创建/修改文件。
-- **中文输出会乱码**：本机 `sys.stdout.encoding == 'gbk'`，`print("中文")` 变乱码；`PYTHONIOENCODING=utf-8` 后正常（D012 / P004）。
+- **内核可运行**：`chessarena/` 包 15 个模块（约 1,450 行含文档字符串），`tests/` 32 个用例全绿；`python -m chessarena play --white builtin:random --black builtin:greedy` 能跑完整局并输出 PGN（M1 达成，E004）。
+- **已实现**：`RC` / `Result` / `Board`（只读）/ `State`（不可变快照，`apply` 本地推演）/ `Game`（`submit` 五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN）/ `Agent` / `HumanAgent` / `Arena` / 内置 L1 random、L2 greedy / CLI `play`。
+- **依赖已就位**：`chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`websockets`；`pytest` / `httpx` 未装（测试用 `unittest`，D011）。
+- **文档已收敛**：P003 的 9 处冲突全部改完；P005 的外部对手协议已补成总表 §15；三份文档的类型/取值域一致（D015 的 tuple 口径已同步）。
+- **前端产物已迁入**：`vendor/chessground/`（`dist/chessground.min.js` 33,291 B，SHA256 `CCC1AAF…0A591`，3 套 CSS、LICENSE、README 与来源说明）。
+- **已纳入 git**：`a7da3df` 首次提交（docs + 上下文 + vendor + `.gitignore`/`.gitattributes`）；`runs/`、`thirdparty/*.zip`、`thirdparty/chessground/` 已排除（D013）。
+- **Stockfish 未解压**：`thirdparty/stockfish-windows-x86-64-universal.zip` 81,431,614 B，SHA256 `…C30B48A7`，内含 `stockfish/stockfish-windows-x86-64-universal.exe`（103,046,300 B）。
+- **中文输出**：直接 `python` 走 gbk 会乱码；CLI 已 `reconfigure(utf-8)`，但我在 pwsh 里验证仍需 `$env:PYTHONIOENCODING='utf-8'`（D012 / P004）。
 
 **Current assessment：**
 
-- 设计阶段实质已收敛：接口 SSOT 稳定，可以动代码。剩余不确定项（UI 许可证 P002、文档修订 P003/P005）**都不阻塞内核**。
-- 阶段划分见 §6。**当前位置：阶段 0 收尾 → 阶段 1 起点。**
+- 内核 API 手感已验证：五返回码、原子性、四类终局、重试预算、超时判负、层 2 自落子都按文档工作。
+- 尚未做的：`live` 推送 / HTTP 服务 / `Client`（阶段 2）、前端（阶段 3）、L3–L5 与 UCI（阶段 4）、联赛（阶段 5）。
+- **当前位置：阶段 0、1 完成（M0 / M1 达成）→ 阶段 2 起点。**
 
 **Main issue：**
 
-- 唯一实质风险是"0 行代码"；其余为小项（文档修订、vendor 迁入、许可证确认）。
+- 无阻塞项。阶段 2 的第一件事是定 `live` 推送协议（WebSocket 消息格式），前端与 `Client` 都依赖它，必须先落总表。
 
 ## 5. Architecture / Mental Model
 
@@ -87,33 +87,38 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 
 | 阶段 | 目标 | 出口条件（里程碑） | 规模（粗估） | 状态 |
 |---|---|---|---|---|
-| **0 · 文档与资源冻结** | 4 份文档对同一接口只有一种说法；前端产物落到项目内 | **M0**：P003 的 9 处冲突改完（`place/commit/"white"/on_opponent_move` 零残留）；P005 的 UCI/HTTP 注册协议补进总表；`vendor/chessground/` 迁入；GPL 结论（P002）记录为决策 | S · 半天 | **进行中**（冲突已逐条定位，未修） |
-| **1 · 裁判内核 + 命令行闭环** | `chessarena` 包最小纵向切片：`Game.submit` 全返回码、原子性、重试预算、超时、终局判定、PGN；内置 L1/L2 | **M1**：`python -m chessarena play --white builtin:random --black builtin:greedy` 跑完整局并打印 PGN；`unittest` 覆盖 5 个返回码 + 原子性 + 3 种终局；中文不乱码 | M · 600–800 行 | **下一步**（未开始） |
-| **2 · 运行模式 + Web 服务 + Client** | `live` / `headless` / `record` 三模式；FastAPI 3 端点 + WebSocket 推送；跨进程 `Client` 方法名同构 | **M2**：无头实测 ≥1000 plies/s；`curl` 三端点可用；`Client` 与同进程 API 同名同返回 | M | 未开始 |
-| **3 · 前端（chessground 零构建）** | 引 vendor 的 `min.js` + CSS：合法点高亮、升变、上一步、将军、SAN 列表、时钟、悔棋、翻转、导出 PGN；人机 + 机机（调速/暂停/单步） | **M3**：浏览器人机对局可完成并正确判负；机机可观战；控制台零报错 | L | 未开始（前置：M0 的 vendor 迁入、P002 结论） |
+| **0 · 文档与资源冻结** | 4 份文档对同一接口只有一种说法；前端产物落到项目内 | **M0**：P003 的 9 处冲突改完；P005 的 UCI/HTTP 注册协议补进总表；`vendor/chessground/` 迁入；GPL 结论（P002）记录为决策 | S · 半天 | **完成**（M0 达成） |
+| **1 · 裁判内核 + 命令行闭环** | `chessarena` 包最小纵向切片：`Game.submit` 全返回码、原子性、重试预算、超时、终局判定、PGN；内置 L1/L2 | **M1**：`python -m chessarena play --white builtin:random --black builtin:greedy` 跑完整局并打印 PGN；`unittest` 覆盖 5 个返回码 + 原子性 + 终局；中文不乱码 | M · 600–800 行 | **完成**（M1 达成，实测 1,450 行） |
+| **2 · 运行模式 + Web 服务 + Client** | `live` / `headless` / `record` 三模式；FastAPI 3 端点 + WebSocket 推送；跨进程 `Client` 方法名同构 | **M2**：无头实测 ≥1000 plies/s；`curl` 三端点可用；`Client` 与同进程 API 同名同返回 | M | **下一步**（未开始） |
+| **3 · 前端（chessground 零构建）** | 引 vendor 的 `min.js` + CSS：合法点高亮、升变、上一步、将军、SAN 列表、时钟、悔棋、翻转、导出 PGN；人机 + 机机（调速/暂停/单步） | **M3**：浏览器人机对局可完成并正确判负；机机可观战；控制台零报错 | L | 未开始（前置：阶段 2 的推送协议） |
 | **4 · 五档内置 + Stockfish** | L3 minimax2 / L4 minimax3+alpha-beta（各独立 50–150 行）；解压 Stockfish 走 UCI，配 ELO/时限 | **M4**：五档在 UI 中可选；实测每步耗时写入文档（L4 中局 ≤1s）；Stockfish 冒烟对局通过 | M | 未开始（可与阶段 3 并行） |
 | **5 · 联赛 + ELO + 报告** | 循环赛、随机开局、并发、ELO、**非法率列**、`results/league-*.html` + PGN 打包、断点续跑 | **M5**：一条命令跑 L1–L4 循环赛并生成 ELO 表 | M | 未开始（依赖 M2） |
 | **6 · 教学交付** | `agents/examples/` 3 个样例、`assignments/` 骨架 + 评分脚本、`requirements.txt`、`start.bat`、给学生的一页调用约定 | **M6**：新机器按 README 三步启动；3 个样例通过自测命令 | S–M | 未开始 |
 
 **依赖**：0 → 1 → 2 → 3；4 依赖 1；5 依赖 2；6 最后。**里程碑 ↔ 需求**：M1↔R3、M2↔R5、M3↔R1/R2、M4↔R4、M5↔"一条命令出 ELO"、M6↔教学使用。
 
-**当前阶段判定**：阶段 0 只剩 S 级收尾（文档 9 处 + P005 补节、vendor 迁入、GPL 结论），可与阶段 1 同期启动；**建议下一动作是阶段 0 的文档修订 + 阶段 1 的包骨架**。
+**当前阶段判定**：阶段 0、1 已完成（M0 / M1）；阶段 2（三模式 + FastAPI + Client）是当前工作阶段，入口条件是先在总表定下 WebSocket 消息格式。
 
 ## 7. Important Files
 
 | File | Purpose | Notes |
 |---|---|---|
-| `docs/chessarena-API总表.md` | **接口单一事实来源**（§0–§14） | 实现照此写；与其他文档冲突时以它为准（D010） |
-| `docs/chessarena-API规格.md` | 设计意图、返回码语义、重试规则 | 主体一致；3 处细节与总表冲突，见 P003 |
-| `docs/chessarena-使用说明书.md` | 产品形态、界面线框、五档难度、教学节奏 | **6 处旧设计残留，见 P003** |
+| `docs/chessarena-API总表.md` | **接口单一事实来源**（§0–§15） | 实现照此写；与其他文档冲突时以它为准（D010） |
+| `docs/chessarena-API规格.md` | 设计意图、返回码语义、重试规则 | 已与总表对齐 |
+| `docs/chessarena-使用说明书.md` | 产品形态、界面线框、五档难度、教学节奏 | 已与总表对齐（P003 关闭） |
 | `docs/chess-ai-platform-research.md` | GitHub 选型调研（星数/License 实测） | 调研期结论；其中"非法着法判负"已被 D004 取代 |
+| `chessarena/core/game.py` | 裁判：`submit` 五返回码、原子性、重试/超时、终局、事件、PGN | 阶段 1 核心，503 行 |
+| `chessarena/core/state.py` | 不可变快照 + `apply` 沙盘推演 | 学生写 minimax 的入口 |
+| `chessarena/core/board.py` | 只读棋盘视图（无写方法） | 与 `Game` 共享同一份真相 |
+| `chessarena/core/{rc,result,moves,agent,arena,errors}.py` | 返回码 / 结果对象 / 坐标 / 选手 / 装配 / 异常 | |
+| `chessarena/builtin/` | L1 random、L2 greedy（各 ≤60 行，作教材） | L3–L5 阶段 4 补 |
+| `chessarena/cli.py` | `python -m chessarena play` 等 | 阶段 1 只有 `play` / `--version` |
+| `tests/test_kernel.py` | 32 个 `unittest` 用例（返回码/原子性/终局/驱动） | `python -m unittest discover -s tests -t .` |
+| `vendor/chessground/` | 前端预构建产物（min.js 33,291 B + 3 CSS + LICENSE） | 零构建，阶段 3 直接引 |
 | `thirdparty/stockfish-windows-x86-64-universal.zip` | L5 引擎 | 未解压；内含 `stockfish/…universal.exe` |
-| `thirdparty/chessground/` | 参考源码（GPL-3.0，shallow clone v10.5.0） | 仅供阅读；**不需要构建**，无 `dist/` |
-| `<old-ws>/vendor/chessground/` | 实际前端要引的产物（min.js + 3 CSS） | 待迁入 `ChessArena/vendor/chessground/` |
-| `chessarena/`（待建） | 平台包：`core/` 裁判、`builtin/` 五档、`web/` 服务、`cli.py` | 阶段 1 起 |
-| `tests/`（待建） | `unittest` 用例 | 阶段 1 起 |
+| `thirdparty/chessground/` | 参考源码（GPL-3.0，shallow clone v10.5.0） | 仅供阅读；**不需要构建**，无 `dist/`；已 gitignore |
 
-`<old-ws>` = `C:\Users\30130\Documents\deepseek-harness\default-workspace`（旧暂存区，只读式取用）。
+`<old-ws>` = `C:\Users\30130\Documents\deepseek-harness\default-workspace`（旧暂存区；`vendor/` 已迁出，仅留归档）。
 
 ## 8. Decisions
 
@@ -213,13 +218,37 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Implication:** 我在 pwsh 里验证中文前先 `$env:PYTHONIOENCODING='utf-8'`。
 **Status:** Active
 
-### D013 — 建议为 `ChessArena` 初始化 git，排除大文件
+### D013 — 为 `ChessArena` 初始化 git，排除大文件
 
-**Decision（待用户确认）:** `git init` + 首次提交文档与上下文；`.gitignore` 排除 `thirdparty/*.zip`、`thirdparty/chessground/`、`runs/`、`results/`。
-**Reason:** 现在无版本控制，多阶段实现无法 diff / 回滚。
-**Evidence:** E003（`ChessArena` 无 `.git`，父目录亦非仓库）。
-**Implication:** 若同意，在阶段 1 开工前完成，之后每阶段一次提交。
-**Status:** Plan
+**Decision:** `git init` + 首次提交文档与上下文；`.gitignore` 排除 `thirdparty/*.zip`、`thirdparty/chessground/`、`runs/`、`results/`；`.gitattributes` 让 `vendor/**` 逐字节保真（`-text`），文本统一 LF。
+**Reason:** 多阶段实现需要 diff / 回滚；vendor 的 min.js 不能被换行转换破坏哈希。
+**Evidence:** E003（原先无任何仓库）；首次提交 `a7da3df` 后 `vendor` 哈希未变。
+**Implication:** 每完成一个阶段做一次提交；`thirdparty/` 的大文件按需重新下载。
+**Status:** Active
+
+### D014 — 接受 chessground 的 GPL-3.0（用户已确认）
+
+**Decision:** 前端用 chessground 预构建产物，接受 GPL-3.0-or-later 的传染性。
+**Reason:** 校内教学 + 开源课程仓库合规；自写 SVG 棋盘要多花约 400 行且观感更差。
+**Evidence:** 用户 2026-10-23 明确回答"可以接受"。
+**Implication:** 页面分发时须同时提供源码（`thirdparty/chessground` 与上游地址已在 `vendor/chessground/README.md` 注明）。
+**Status:** Active
+
+### D015 — 快照与列表一律用不可变类型（tuple）
+
+**Decision:** `State.board` 为 `tuple[tuple[str, ...], ...]`；`legal_moves` / `history` 为 `tuple[str, ...]`。
+**Reason:** 与"只读快照"承诺一致，且可哈希（"顺序固定可用于哈希"才成立）；免去每次访问的防御性拷贝。
+**Evidence:** 阶段 1 实现与 32 个测试；`np.array(state.board)` 仍可直接用。
+**Implication:** 文档已同步 tuple 口径；学生拿到的不是 list，不能原地 `sort()`/`append()`——这本身是正确用法。
+**Status:** Active
+
+### D016 — 超时策略：内置档位内联，学生/外部走守护线程
+
+**Decision:** `fast_local=True` 的 agent 直接内联执行（返回后测量耗时）；其余 agent 放进 daemon 线程并 `join(预算)`，超时就判负、线程弃置。
+**Reason:** 内置档位不会卡死，内联可省每步线程开销（无头吞吐目标 ≥1000 plies/s）；学生代码可能死循环，必须能硬超时。
+**Evidence:** E004 的无头吞吐实测（3,500+ plies/s）与超时用例。
+**Implication:** 被弃置的线程若事后调用 `submit`，会因轮次/代数检查被拒；不要在 agent 里依赖线程局部状态。
+**Status:** Active
 
 ## 9. Experiments / Results
 
@@ -248,6 +277,17 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - `sys.stdout.encoding == 'gbk'`，中文 `print` 乱码；`PYTHONIOENCODING=utf-8` 后正常。
 **Conclusion:** 依赖与素材齐备，可以开写内核；同时纠正三条过期上下文（项目根写权限、父目录 git、文档"已完全一致"）。
 
+### E004 — 阶段 1 内核验收（M1）
+
+**Purpose:** 验证 `Game.submit` 的五返回码、原子性、终局、重试/超时在真实棋例下成立，并测无头吞吐。
+**Setup:** `python -m unittest discover -s tests -t .`（32 用例）；`python -m chessarena play` 跑随机/贪心对局。
+**Result:**
+- 32 个用例全绿，0.26 s（返回码 -1/-2/-3/-4、原子性、将杀/逼和/子力不足/50 步/三次重复、重试预算、超时、异常、弃权、层 2 自落子、事件、PGN 往返）。
+- `random vs greedy`：106 半步逼和，0.03 s；`greedy vs random`：95 半步逼和 → **≈3,500 plies/s**（目标 ≥1000）。
+- 同 `seed` 两次运行的着法序列完全一致（仅 `GameId`/`Date` 头不同）。
+- 代码量：内核 15 个模块 1,450 行（不含 330 行测试）。
+**Conclusion:** M1 达成；API 手感与文档一致，可直接作为阶段 2 的地基。
+
 ## 10. Failed Attempts / Things Not To Repeat
 
 ### F001 — 在 chessground 源码克隆里用 npm 安装并构建
@@ -264,6 +304,13 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Why it failed:** 校验口径来自"已知的旧 API 名"，而漂移发生在未列出的概念上。
 **Do instead:** 以总表的**接口清单**为基准做逐条对账（对象、方法名、取值域、判定规则），而不是扫关键词。
 
+### F003 — 按旧版 python-chess 的 API 名写终局检测
+
+**Tried:** `board.is_threefold_repetition()`。
+**Result:** `AttributeError`——本机 `chess 1.11.2` 里没有这个名字（改名/移除）。
+**Why it failed:** 记忆中的 API 来自更老的版本，没有对当前安装版本核对。
+**Do instead:** 1.11.x 用 `board.is_repetition(3)`（三次及以上）与 `board.is_fivefold_repetition()`；动手前用 `python -c "import chess; print([n for n in dir(chess.Board) if ...])"` 核对。
+
 ## 11. Bugs / Open Problems
 
 ### P001 — 删除 `ChessArena/chessground` 时 Windows 报"文件夹正在使用"
@@ -273,71 +320,67 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 
 ### P002 — chessground 为 GPL-3.0，授权尚未确认
 
-**Symptoms:** 引入 chessground 会使前端受 GPL-3.0-or-later 约束。
-**Known facts:** `package.json` 与 README 均为 `GPL-3.0-or-later`，README 明说"必须向使用者发布源码"。
-**Assessment:** 校内教学 + 开源课程仓库完全可接受；闭源分发不可。
-**Next investigation:** 用户一句话确认即可；不接受则改自写 SVG 棋盘（约 400 行，阶段 3 的替代路线）。
-**Impact:** 阻塞阶段 3 开工（不阻塞阶段 1/2）。**Decision gate：M0 前定。**
+**Status:** **Resolved**（用户 2026-10-23 接受，见 D014）。vendor 目录内已附 LICENSE 与来源说明，满足"提供源码"要求。
+**Keep for history:** 若将来需要闭源分发，改为自写 SVG 棋盘（约 400 行）是唯一干净路线。
 
 ### P003 — 文档内部冲突 9 处（说明书 6 / 规格 3），需按 D010 收敛
 
-**《使用说明书》（6 处）：**
-1. L193：`state.turn` 写作 `"white"`/`"black"`，总表 §4 为 `"w"`/`"b"`。
-2. L229–230：`board = game.board` 注释为"棋盘：可逐格读写（编辑器语义）"，与 Board 只读矛盾。
-3. L310：仍有 `place()` / `commit()`（总表无此接口，D003 已废）。
-4. L318：判定规则表"返回非法着法 → 该方判负"，与 D004 三次重试矛盾。
-5. L397：§八 列表残留 "（`move` / `drop` / `place`）"。
-6. L308：非法着法"抛 `IllegalMoveError` / 返回 409"，应为"返回码 `-1`（HTTP 400）+ 原子回滚"。
+**Status:** **Resolved**（2026-10-23 已全部改写；`place(`/`commit(`/`"white"`/`409`/`on_opponent_move(`/`arena.game` 在 docs 里零残留）。实现后另同步了 tuple 类型口径（D015）与 `over_reason` 的 `forfeit`/`error` 取值。
 
-**《API规格》（3 处）：**
-7. L115：`over_reason` 取值 `checkmate/stalemate/threefold/fifty/forfeit/timeout`，总表另有 `insufficient`、`resign`、`retry_exhausted`（无 `forfeit`）。
-8. L119：写成 `game.on_opponent_move(callback)`，总表统一为 `on("opponent_move", cb)`。
-9. L127：`board.piece_at()` 返回 `'P' / '.' / None`，总表为 `"P"`/`"p"`/`"."`（无 `None`）。
-
-**Fix:** 阶段 0 按 D010 逐处改写为总表口径（总数 9，改完用逐条对账复查）。
-**Impact:** 学生会读到错误调用约定，必须在发作业前修掉。
+**原始清单（留档，便于追溯）：**
+1. 说明书 L193：`state.turn` 写作 `"white"`/`"black"`。
+2. 说明书 L229–230：`board = game.board` 注释为"可逐格读写"。
+3. 说明书 L310：`place()` / `commit()`。
+4. 说明书 L318：判定表"非法即判负"（与 D004 冲突）。
+5. 说明书 L397：`move` / `drop` / `place` 列表。
+6. 说明书 L308：`IllegalMoveError` / 409。
+7. 规格 L115：`over_reason` 取值集不一致。
+8. 规格 L119：`on_opponent_move(callback)`。
+9. 规格 L127：`piece_at` 返回 `None`。
 
 ### P004 — 本机 Python stdout 为 gbk，中文输出乱码
 
 **Symptoms:** `print("中文测试")` → 乱码；`sys.stdout.encoding == 'gbk'`。
-**Fix:** D012（CLI reconfigure + 显式 encoding）。作文本写入时用 `encoding='utf-8'`。
-**Impact:** 低（有确定绕法），但每个入口都要记得加。
+**Fix:** D012（CLI 入口已 `reconfigure(utf-8)`；文件一律 `encoding='utf-8'`）。我在 pwsh 验证前加 `$env:PYTHONIOENCODING='utf-8'`。
+**Status:** Mitigated（有确定绕法，但每个新入口都要记得加）。
 
 ### P005 — 总表缺"UCI/HTTP 外部对手注册"协议
 
-**Symptoms:** 《使用说明书》§三 写了 `agents/agents.json`（`type: uci | http`、`cmd`、`url`、超时、`{"move": ...}` 载荷），但《API总表》§10 只列 `human` / `builtin:*` / 文件路径 / 实例，**没有** UCI 与 HTTP 对手的注册与线协议。
-**Assessment:** Stockfish（阶段 4）与"GPU 上的神经网络"（阶段 2）都走这条路，没有 SSOT 会导致实现与文档各写一套。
-**Fix:** 阶段 0 在总表补一节（`§15 外部对手注册`）：`agents.json` 字段、UCI 握手序列（`uci`/`isready`/`position`/`go`/`bestmove`）、HTTP 请求/响应 JSON。
-**Impact:** 中；阻塞阶段 2 的 `Client`/HTTP 对手与阶段 4 的 UCI 适配，不阻塞阶段 1。
+**Status:** **Resolved**（总表新增 §15：`agents.json` 字段、UCI 握手序列、HTTP 请求/响应 JSON；§10 增加 `"uci:名字"` / `"http:名字"`；说明书 §三 已引用）。阶段 2/4 实现时照 §15 写。
+
+### P006 — 人类路径的"不消耗重试"需要显式标记
+
+**Symptoms:** `HumanAgent` 走的是同一套 `_play_turn` 重试循环；若不区分，人类手滑也会在 `max_retries` 次后判负，违反《说明书》§四的承诺。
+**Fix:** `Agent.is_human = True`（`HumanAgent` 已设）；裁判对这类 agent 只受时钟限制、不计重试。
+**Validation:** `test_human_rejections_do_not_consume_retries`（两次非法后仍能落子，`ply == 1`）。
 
 ## 12. Current Working Set
 
-- **Files currently being changed:** `PROJECT_CONTEXT.md`（本轮全量修订 + 阶段划分）。
-- **Functions/components in focus:** 阶段 1 的 `Result` / `Board` / `State` / `Game.submit` 校验链。
-- **Immediate issue:** 无阻塞项；阶段 0 的 3 个收尾项 + 阶段 1 的包骨架。
-- **Current hypothesis:** M1（命令行跑完整局输出 PGN）能在 600–800 行内达成，且是最快验证 API 手感的路径。
-- **Next check:** 写 `Game.submit` 时用具体棋例固定以下语义：`-2` vs `-1` 的边界（格式差 vs 不合法）、升变串 `e7e8q` 的接受/拒绝规则、人类路径不消耗重试次数。
+- **Files currently being changed:** `PROJECT_CONTEXT.md`（阶段 1 收尾）；下一轮改 `chessarena/web/`（服务层）。
+- **Functions/components in focus:** 阶段 2 的推送协议与 `Client`——`Game` 已把事件、`to_json()`、`state` 准备好，只差传输层。
+- **Immediate issue:** 无阻塞项；阶段 2 的入口是"定 WebSocket 消息格式并写进总表 §16"。
+- **Current hypothesis:** 复用 `Game.to_json()` 作为 `/state` 与 WebSocket 快照的载荷，前端与 `Client` 只解析一种结构。
+- **Next check:** `live=True` 时一局 100 步的推送延迟；`record=True` 的录像格式（按事件流还是按帧快照）。
 
 ## 13. Next Actions
 
-**阶段 0（先做，S）**
-- [ ] 按 D010 修 P003 的 9 处（说明书 6 + 规格 3），并把 P005 的"外部对手注册"补进总表；修完按 F002 的对账法复查（逐条对总表，别只 grep）。
-- [ ] 把 `<old-ws>/vendor/chessground/` 迁入 `ChessArena/vendor/chessground/`，并核对 `dist/chessground.min.js` 仍是 33,291 B。
-- [ ] 用户确认 P002（GPL 可接受）与 D013（git init）。
+**已完成（阶段 0 / 阶段 1，2026-10-23）**
+- [x] 修 P003 的 9 处冲突；把 P005 的外部对手协议补成总表 §15。
+- [x] `vendor/chessground/` 迁入并核对哈希；`thirdparty/chessground/` 保留为源码副本。
+- [x] `git init` + 首次提交 `a7da3df`。
+- [x] 内核：`RC`/`Result`/`Board`/`State`/`Game`/`Agent`/`Arena`/L1/L2/CLI；32 个 unittest 全绿。
+- [x] **M1 验收**：`python -m chessarena play --white builtin:random --black builtin:greedy` 出完整 PGN。
 
-**阶段 1（随后，M）**
-- [ ] 建包骨架：`chessarena/{__init__,core/{rc,result,board,state,game,agent,moves},builtin/{random,greedy},cli}.py`。
-- [ ] `Game.submit` 全链：格式校验 → 轮次 → 终局 → 合法性 → 原子提交 → 事件广播。
-- [ ] 重试预算（D009）+ 超时 + `forfeit`/`random` 两种处置。
-- [ ] 终局判定对齐 python-chess（将杀/逼和/三次重复/50 步/子力不足）+ `pgn()`。
-- [ ] L1 random / L2 greedy（各 ≤150 行，带教学注释）。
-- [ ] `tests/` 用 unittest 覆盖 5 个返回码、原子性、3 类终局；`PYTHONIOENCODING=utf-8` 下验证中文。
-- [ ] **M1 验收**：`python -m chessarena play --white builtin:random --black builtin:greedy` 出完整 PGN。
+**阶段 2（当前，M）**
+- [ ] 总表补 §16「推送协议」：WebSocket 消息（`snapshot` / `move` / `game_over`）、HTTP 3 端点的错误码映射（`-1` → 400）。
+- [ ] `chessarena/web/server.py`：FastAPI app，`GET /state`、`POST /move`、`POST /reset`、`GET /legal_moves`、`WS /ws`。
+- [ ] `Client`：同构方法 `state()/board()/submit()/legal_moves()/wait_my_turn()/reset()`。
+- [ ] `live` / `headless` / `record` 三模式落地（`live=True` 推送到连接；`record=True` 落盘事件流）。
+- [ ] 测：`Client` 与同进程同名同返回；`curl` 三端点；无头吞吐 ≥1000 plies/s（已实测 3,500+，回归即可）。
 
-**阶段 2+（排期待启动）**
-- [ ] 三模式 + FastAPI 3 端点 + WebSocket 推送 + `Client`（M2）。
-- [ ] vendor 前端页面（M3，前置 P002）。
-- [ ] L3/L4 + Stockfish 解压与 UCI 适配（M4，可并行）。
+**阶段 3+（排期待启动）**
+- [ ] vendor 前端页面：人机 + 机机观战（M3）。
+- [ ] L3/L4 + Stockfish 解压与 UCI 适配（M4，可与阶段 3 并行）。
 - [ ] 联赛 + ELO + 报告（M5）。
 - [ ] 教学包：examples / assignments / requirements.txt / start.bat / 调用约定（M6）。
 
@@ -345,14 +388,15 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 
 - [x] **文档存在且可读**：`docs/` 4 份齐全（2026-10-23）。
 - [x] **依赖可 import**：chess / fastapi / uvicorn / yaml / websockets（E003）。
-- [x] **chessground 产物完整性**（内容校验，E001）：含 `export {` 与 `Chessground`，无 sourcemap 引用；产物仍在暂存区未迁入。
-- [x] **Stockfish 包可读**：zip 完整解出目录树，含 universal.exe 与 Copying.txt。
-- [ ] **文档零冲突**：现有 9 处（P003）+ 1 处缺口（P005）——**未通过**。
-- [ ] 规则内核实现与单元测试。
-- [ ] 端到端：命令行一局输出 PGN（M1）。
-- [ ] 无头吞吐 ≥1000 plies/s（M2）。
+- [x] **chessground 产物完整性**：含 `export {` 与 `Chessground`，无 sourcemap 引用；已迁入 `vendor/` 且哈希一致（`CCC1AAF…0A591`）。
+- [x] **Stockfish 包可读**：zip 完整解出目录树，含 universal.exe 与 Copying.txt（未解压、未执行）。
+- [x] **文档零冲突**：P003/P005 关闭；`docs/` 内 `place(`/`commit(`/`"white"`/`409`/`on_opponent_move(` 零命中。
+- [x] 规则内核实现与单元测试：32 用例全绿（E004）。
+- [x] 端到端：命令行一局输出 PGN（M1）。
+- [ ] 无头吞吐 ≥1000 plies/s 的**回归**用例（当前实测 3,500+，测试里只断言 ≥200）。
+- [ ] HTTP 3 端点 + `Client` 同构（M2）。
 - [ ] 页面联调：人机 + 机机（M3）。
-- [ ] Stockfish 可执行性（zip 未解压）与五档耗时（M4）。
+- [ ] Stockfish 可执行性与五档耗时（M4）。
 - [ ] 联赛一条命令出 ELO（M5）。
 
 ## 15. Environment
@@ -360,21 +404,21 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - **OS:** Windows；shell 为 PowerShell（`pwsh`）。
 - **Python:** 3.12.5；pip 26.2.1；已装 `chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`starlette 1.9.0`、`websockets`；**未装** `pytest`、`httpx`。
 - **Node:** v24.16.0；npm 可用；**pnpm 不可用**（本方案不需要）。
-- **Git:** `C:\Program Files\Git\cmd\git.exe` 可用；项目自身未初始化仓库（D013）。
+- **Git:** `C:\Program Files\Git\cmd\git.exe` 可用；`ChessArena` 已是仓库（首次提交 `a7da3df`），身份 `diego3893 <diegozcx@foxmail.com>`。
 - **项目根:** `C:\Users\30130\Desktop\workstation\ChessArena`（本会话沙箱工作区，可直接写）。
-- **旧暂存区:** `C:\Users\30130\Documents\deepseek-harness\default-workspace`（`vendor/` 与 `.tgz` 在此；写入需提权，只作取用）。
-- **编码:** Python stdout `gbk` → 验证中文前 `$env:PYTHONIOENCODING='utf-8'`；文件一律 UTF-8。
-- **复现命令:** `python -m pip install chess fastapi "uvicorn[standard]" pyyaml`（均已满足）。
+- **旧暂存区:** `C:\Users\30130\Documents\deepseek-harness\default-workspace`（`vendor/` 已迁出；`.tgz` 仍在此）。
+- **编码:** Python stdout `gbk` → 验证中文前 `$env:PYTHONIOENCODING='utf-8'`；CLI 已自带 reconfigure；文件一律 UTF-8。
+- **复现命令:** `python -m pip install chess fastapi "uvicorn[standard]" pyyaml`；测试 `python -m unittest discover -s tests -t .`；跑一局 `python -m chessarena play`。
 - **沙箱注意:** 用中文字面量做路径匹配可能编码错乱，**用通配符枚举 + `Get-FileHash`** 比对。
 
 ## 16. Context Handoff Summary
 
 1. **在做什么**：为一门研讨课搭建单机国际象棋 AI 平台；学生写 AI，平台负责裁判、UI、基线对手与联赛。
 2. **为什么这样做**：国际象棋规则库成熟 → python-chess 保正确性；chessground 预构建包保 UI 且零构建；"单一写入口 submit + 返回码重试"降低学生出错成本。
-3. **已完成**：4 份设计/API 文档；依赖全部装好；chessground 源码克隆与预构建产物都到手（产物未迁入）；Stockfish 包已下载；阶段划分（§6）已定。
-4. **最大剩余问题**：代码为 0 行——`chessarena/` 包尚未创建；其次是文档 9 处冲突（P003）、UCI/HTTP 协议缺口（P005）与 GPL 确认（P002）。
-5. **已排除**：npm 构建 chessground（F001）；SAN 与 `drop(x,y,color)` 着法格式（D005）；联机（D008）；`move()` 别名（D003）；关键词式文档校验（F002）。
-6. **第一个下一步**：阶段 0 —— 按 D010 修文档 9 处、补 P005 一节、迁 vendor；紧接阶段 1 —— 建包骨架并实现 `Game.submit`，以 M1（命令行一局出 PGN）验收。
+3. **已完成**：阶段 0（文档收敛、vendor 迁入、git）与阶段 1（裁判内核 + L1/L2 + CLI，32 测试全绿，M1 达成）；Stockfish 包已下载未解压；阶段划分（§6）已定。
+4. **最大剩余问题**：没有阻塞项；阶段 2 的推送协议（总表 §16）还没定，它是前端与 `Client` 的共同前提。
+5. **已排除**：npm 构建 chessground（F001）；SAN 与 `drop(x,y,color)` 着法格式（D005）；联机（D008）；`move()` 别名（D003）；关键词式文档校验（F002）；按旧版 python-chess 名写终局检测（F003）。
+6. **第一个下一步**：阶段 2 —— 在总表定 WebSocket 消息格式，然后写 `chessarena/web/`（FastAPI 3 端点 + `WS /ws`）与 `Client`，以 M2（curl 可用 + Client 同构）验收。
 
 ## 17. Decision / Progress Log
 
@@ -384,3 +428,5 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 00:3x — chessground 改为官方预构建包方案（D006），放弃 pnpm 构建路径（F001）。`
 `2026-10-23 — 建立 PROJECT_CONTEXT.md；项目根确定为 ChessArena。`
 `2026-10-23 01:30 — 全量复检（E003）：依赖已装、代码 0 行、无 git、文档 9 处冲突（P003）、UCI/HTTP 协议缺口（P005）、gbk 编码坑（P004）；新增 §6 阶段划分（M0–M6）与 D010–D013；P001 关闭。`
+`2026-10-23 01:4x — 用户拍板：先修文档再写内核、接受 GPL、初始化 git（D014）。阶段 0 完成：P003 九处改写、总表 §15 外部对手协议、vendor 迁入、`a7da3df` 首次提交。`
+`2026-10-23 01:5x — 阶段 1 完成（M1）：`chessarena/` 内核 15 模块 + L1/L2 + CLI；32 个 unittest 全绿；random vs greedy 一局 106 半步、0.03 s；补 D015（tuple）、D016（超时策略）、P006（人类不消耗重试）。`
