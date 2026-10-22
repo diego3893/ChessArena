@@ -1,0 +1,14 @@
+# 运行时产物与缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# 对局日志与联赛报告（可再生成）
+runs/
+results/
+
+# 第三方大文件 / 上游克隆：按需从官方渠道重新获取
+thirdparty/chessground/
+thirdparty/*.zip

@@ -1,0 +1,14 @@
+# 默认：文本文件在仓库里统一 LF，避免 Windows 检出差异
+* text=auto eol=lf
+
+# 第三方预构建产物：逐字节保真，禁止换行转换
+vendor/** -text
+
+# Windows 批处理必须 CRLF
+*.bat text eol=crlf
+
+# 二进制
+*.zip binary
+*.png binary
+*.jpg binary
+*.exe binary
