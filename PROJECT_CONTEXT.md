@@ -41,14 +41,14 @@
 
 **Confirmed（2026-10-23 03:2x，阶段 3 前端落地 + 阶段 4 五档完成）：**
 
-- **可运行**：`chessarena/` 30 个 Python 模块（约 3,300 行）+ 前端 690 行；`tests/` **70 个用例全绿**（连续 3 轮，Stockfish 引擎用例在沙箱内 skip）；`play` / `serve` / 页面 / 五档 AI 齐备（M1、M2、M4 达成；M3 代码完成、待人工浏览器验收）。
+- **可运行**：`chessarena/` 30 个 Python 模块（约 3,300 行）+ 前端 690 行；`tests/` **75 个用例全绿**（连续 2 轮，Stockfish 引擎用例在沙箱内 skip）；`play` / `serve` / 页面 / 五档 AI 齐备（M1、M2、M4 达成；M3 代码完成、待人工浏览器验收）。
 - **内核**：五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN + `history_san`/`captured`。
 - **服务**：`web/session.py`（驱动线程 + 广播 + 暂停/单步/调速/悔棋/认输/换模式）、`web/server.py`（FastAPI + 静态页 + `WS /ws`）、`Client`、录像 JSONL。
-- **前端**：`web/ui/{index.html,app.js,style.css}`，chessground 零构建；落子/升变/记谱/吃子/悔棋/认输/翻转/导出 PGN/机机调速与暂停单步。
+- **前端**：`web/ui/{index.html,app.js,style.css}`，chessground 零构建；**顶部白方/黑方两个模型下拉**（人类 / L1–L5 / 未来的 agents）+「开局」，改选即重开；落子/升变/记谱/吃子/悔棋/认输/翻转/导出 PGN/调速与暂停单步。
 - **五档**：L1 random、L2 greedy、L3 minimax 深度 2、L4 深度 3 + αβ（迭代加深，0.85s 预算）、L5 Stockfish 19（`UCI_Elo` 1320–3190，默认 1600、0.6s/步）。
 - **实测**：L3 0.015–0.03s/步；L4 0.14–0.86s/步并找到 Qxf7#；L4 vs L3 40 半步 10.0s；Stockfish 通过 `UCIEngine` 返回 `g1f3`（含启动 0.59s），二次查询复用进程。
 - **依赖**：`chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`websockets 17.3`；无前端构建链。
-- **版本控制**：`a7da3df` → `8eeaab2` → `b4a56b5` → `3a5e2c9`；阶段 4 待提交。
+- **版本控制**：`a7da3df` → `8eeaab2` → `b4a56b5` → `3a5e2c9` → `661522a` → `4effeef`；本轮（模型下拉）待提交。
 - **中文输出**：CLI/页面均 UTF-8；pwsh 里验证仍需 `$env:PYTHONIOENCODING='utf-8'`（D012 / P004）。
 
 **Current assessment：**
@@ -596,3 +596,4 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 02:5x — 阶段 3 代码完成：`web/ui/`（页 676 行 JS/CSS/HTML）零构建引 chessground；服务端补 `history_san`/`captured`/`human`/`paused`/`speed`/`timeout`，`/control` 增 `undo`/`resign`/带选手的 `new`；静态页与 4 个接线用例；55 个测试全绿；补 D019（前端不含棋规）、D020（非法重绘）；P008（Edge 在沙箱内起不来，M3 待人工验收）。`
 `2026-10-23 03:2x — 阶段 4 完成（M4）：解压 Stockfish 19；`engines/uci.py` + 五档（L3 深度2、L4 αβ 迭代加深 0.85s、L5 `UCI_Elo`）；L3 ≤0.03s、L4 ≤0.86s、找到 Qxf7#；66 个测试全绿（引擎用例沙箱内 skip）；补 D021（预算制）、D022（UCI 交给 python-chess）、P009（沙箱禁管道）。`
 `2026-10-23 04:0x — 用户实测"页面卡住"（P010）：无法复现服务端停步，判定为客户端漏消息无兜底 + 驱动线程可能静默死亡。修复：WS heartbeat（3s 全量快照）、客户端 5s HTTP 校准与旧快照丢弃、驱动 try/except + 空转检测 + 2s 自动重启、`GET /debug`、AI 回合"思考中…"；新增 TestResilience 4 用例，70 个测试 3 轮全绿。`
+`2026-10-23 09:2x — 用户要求"UI 里选模型"：顶部加白方/黑方两个下拉（人类 / L1–L5 / 未来 agents）+ 开局按钮，改选即重开；新增 `GET /players` 与快照 `players` 字段；`Session.control("new")` 先建后换（非法写法 400 且原局不变），`resolve_player` 把 KeyError 转 `AgentLoadError`；新增 5 个 players 用例，75 个测试全绿。`

@@ -91,6 +91,7 @@ function render(st) {
   renderStatus(st);
   syncMode(st);
   syncSpeed(st);
+  syncPicks(st);
   if (st.over) showOver(st);
   else hideOver();
 }
@@ -158,12 +159,9 @@ function renderStatus(st) {
 }
 
 function syncMode(st) {
-  const oneHuman = humanOf(st, "w") !== humanOf(st, "b");
-  for (const btn of document.querySelectorAll("#modes button")) {
-    const want = btn.dataset.mode === "hva" ? oneHuman : !oneHuman;
-    btn.classList.toggle("active", want);
-  }
-  $("#speed-group").hidden = oneHuman;
+  // 只要有一方是 AI，就显示机机观战用的速度/暂停/单步
+  const anyAI = humanOf(st, "w") === false || humanOf(st, "b") === false;
+  $("#speed-group").hidden = !anyAI;
 }
 
 function syncSpeed(st) {
@@ -246,13 +244,66 @@ async function control(payload) {
   }
 }
 
-async function setMode(mode) {
-  const players =
-    mode === "hva"
-      ? { white: "human", black: "builtin:greedy" }
-      : { white: "builtin:greedy", black: "builtin:random" };
+// ---------------------------------------------------------------- 选手选择
+const PLAYER_LABELS = {
+  human: "人类",
+  "builtin:random": "随机 (L1)",
+  "builtin:greedy": "贪心 (L2)",
+  "builtin:minimax2": "Minimax 深度2 (L3)",
+  "builtin:minimax3": "Minimax 深度3 αβ (L4)",
+  "builtin:stockfish": "Stockfish (L5)",
+};
+
+function playerLabel(spec) {
+  return PLAYER_LABELS[spec] || spec.replace(/^agent:/, "");
+}
+
+async function loadPlayers() {
+  let data;
+  try {
+    data = await (await fetch("/players")).json();
+  } catch (err) {
+    console.error("读取 /players 失败", err);
+    return;
+  }
+  for (const sel of [$("#pick-white"), $("#pick-black")]) {
+    sel.innerHTML = "";
+    const add = (value, text) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      sel.appendChild(opt);
+    };
+    if (data.human) add("human", "人类");
+    for (const name of data.builtin || []) add("builtin:" + name, playerLabel("builtin:" + name));
+    for (const agent of data.agents || []) {
+      const spec = agent.spec || "agents/" + (agent.path || "");
+      add(spec, agent.name || spec);
+    }
+  }
+  syncPicks(ui.state);
+}
+
+function syncPicks(st) {
+  if (!st || !st.players) return;
+  const apply = (id, spec) => {
+    const el = $(id);
+    if (!el || !spec) return;
+    if ([...el.options].some((o) => o.value === spec)) el.value = spec;
+  };
+  apply("#pick-white", st.players.w);
+  apply("#pick-black", st.players.b);
+}
+
+async function applyPicks() {
+  const white = $("#pick-white").value;
+  const black = $("#pick-black").value;
+  if (!white || !black) return;
   hideOver();
-  await control({ action: "new", ...players });
+  const body = await control({ action: "new", white, black });
+  if (body) {
+    toast(`已开局：白方 ${playerLabel(white)} · 黑方 ${playerLabel(black)}`, "good");
+  }
 }
 
 function showOver(st) {
@@ -270,7 +321,7 @@ function hideOver() {
 function bindUi() {
   $("#btn-new").addEventListener("click", () => {
     hideOver();
-    control({ action: "new" });
+    applyPicks(); // 按当前下拉框的选择重开
   });
   $("#btn-undo").addEventListener("click", () => control({ action: "undo" }));
   $("#btn-resign").addEventListener("click", () => control({ action: "resign" }));
@@ -301,9 +352,9 @@ function bindUi() {
     hideOver();
     control({ action: "new" });
   });
-  for (const btn of document.querySelectorAll("#modes button")) {
-    btn.addEventListener("click", () => setMode(btn.dataset.mode));
-  }
+  $("#btn-apply").addEventListener("click", applyPicks);
+  $("#pick-white").addEventListener("change", applyPicks);
+  $("#pick-black").addEventListener("change", applyPicks);
   for (const btn of document.querySelectorAll("#speed-group button[data-speed]")) {
     btn.addEventListener("click", () =>
       control({ action: "speed", speed: Number(btn.dataset.speed) })
@@ -408,6 +459,7 @@ ui.ground = Chessground($("#board"), {
 
 bindUi();
 bindPromo();
+loadPlayers();
 connect();
 keepAlive();
 watchdog();

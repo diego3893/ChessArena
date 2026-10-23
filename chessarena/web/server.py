@@ -76,6 +76,11 @@ def create_app(session: Session) -> FastAPI:
         """诊断用：驱动线程是否活着、卡了几次、有几个 WS 客户端。"""
         return JSONResponse(session.debug(), headers=_NO_CACHE)
 
+    @app.get("/players")
+    def get_players():
+        """页面下拉框用：可选的人类 / 内置档 / 已加载的外部对手。"""
+        return JSONResponse(session.available_players(), headers=_NO_CACHE)
+
     @app.get("/legal_moves")
     def get_legal_moves():
         state = session.snapshot()

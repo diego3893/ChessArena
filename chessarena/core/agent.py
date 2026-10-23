@@ -123,7 +123,10 @@ def resolve_player(spec, *, seed=0):
     if low.startswith("builtin:"):
         from ..builtin import make_builtin
 
-        return make_builtin(low.split(":", 1)[1], seed=seed)
+        try:
+            return make_builtin(low.split(":", 1)[1], seed=seed)
+        except KeyError as exc:
+            raise AgentLoadError(str(exc)) from exc
 
     if low.startswith(("uci:", "http:")):
         raise AgentLoadError(

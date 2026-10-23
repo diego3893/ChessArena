@@ -123,10 +123,36 @@ class Session:
         with self._lock:
             payload = self._game.to_json()
             payload["human"] = {"w": self._is_human("w"), "b": self._is_human("b")}
+            payload["players"] = {"w": self._spec_text(self.white_spec),
+                                  "b": self._spec_text(self.black_spec)}
             payload["paused"] = self._paused
             payload["speed"] = self._speed
             payload["timeout"] = self.arena.timeout
             return payload
+
+    @staticmethod
+    def _spec_text(spec):
+        """把选手写法统一成前端能回填的字符串。"""
+        if isinstance(spec, str):
+            return spec
+        if spec is None:
+            return "none"
+        if getattr(spec, "is_human", False):
+            return "human"
+        return "agent:%s" % (getattr(spec, "name", type(spec).__name__),)
+
+    def players(self) -> dict:
+        with self._lock:
+            return {"w": self._spec_text(self.white_spec),
+                    "b": self._spec_text(self.black_spec)}
+
+    def available_players(self) -> dict:
+        """给页面下拉框用：可选的人类 / 内置档 / 已加载的 agents。"""
+        return {
+            "human": True,
+            "builtin": self.arena.builtins(),
+            "agents": list(self.arena.agents() or []),
+        }
 
     # ------------------------------------------------------------------
     def submit(self, move) -> Result:
@@ -182,11 +208,10 @@ class Session:
                 human = [side for side in ("w", "b") if self._is_human(side)]
                 game.resign(human[0] if len(human) == 1 else game.turn)
             elif action == "new":
-                if white:
-                    self.white_spec = white
-                if black:
-                    self.black_spec = black
-                self._build_game()
+                try:
+                    self._build_game(white, black)
+                except Exception as exc:  # 选手写法错误 → 400，且对局保持原样
+                    raise ValueError("开局失败：%s" % (exc,)) from exc
                 self._paused = False
             else:
                 raise ValueError("未知动作：%r（可用 pause/resume/step/speed/undo/resign/new）" % (action,))
@@ -201,7 +226,11 @@ class Session:
             self._driver.join(timeout=2.0)
 
     # ------------------------------------------------------------------
-    def _build_game(self):
+    def _build_game(self, white=None, black=None):
+        """先按新选手建好对局，成功了才替换旧的（失败时原局不受影响）。"""
+        white = white or self.white_spec
+        black = black or self.black_spec
+        game = self.arena.new_game(white=white, black=black, fen=self.fen)
         old = getattr(self, "_game", None)
         if old is not None:
             for agent in (old.white, old.black):
@@ -210,12 +239,13 @@ class Session:
                         agent.close()
                     except Exception:
                         pass
-        game = self.arena.new_game(white=self.white_spec, black=self.black_spec, fen=self.fen)
         game.on("move", self._on_move)
         game.on("illegal", self._on_illegal)
         game.on("game_over", self._on_game_over)
         game.on("retry", self._on_retry)
         self._game = game
+        self.white_spec = white
+        self.black_spec = black
         return game
 
     def _is_human(self, side) -> bool:

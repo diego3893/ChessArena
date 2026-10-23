@@ -368,6 +368,7 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `captured` | 各自吃掉的子：`w` = 白方吃掉的黑子（小写符号），`b` = 黑方吃掉的白子 |
 | `last_move` | 上一步 UCI，没有则 `null` |
 | `human` / `paused` / `speed` / `timeout` | **服务端补充的会话字段**（不属于 `Game`）：该方是否人类、是否暂停、速度倍率、每步限时 |
+| `players` | 当前双方的选手写法：`{"w":"human","b":"builtin:greedy"}`（页面下拉框据此回填） |
 
 `history` / `legal_moves` 是**数组**（JSON 没有 tuple），顺序与 `State` 一致。
 
@@ -380,6 +381,7 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `POST` | `/move` | `{"move":"e2e4"}` | `200` `{"result":{...},"state":{...}}` | `400/409/410`，体同形（`result.code` 说明原因） |
 | `POST` | `/reset` | `{}` 或 `{"fen":"..."}` | `200` `{"result":{"code":0,...},"state":{...}}` | `400` 非法 FEN |
 | `GET` | `/pgn` | — | `200` `text/plain` | — |
+| `GET` | `/players` | — | `200` `{"human":true,"builtin":[...],"agents":[]}` | — |
 | `GET` | `/debug` | — | `200` 驱动状态（`driver_alive`/`stalls`/`steps`/`clients`/`last_error`） | — |
 | `POST` | `/control` | 见下表 | `200` `{"paused":false,"speed":1.0,"state":{...}}` | `400` 未知动作 |
 | `WS` | `/ws` | — | 见 §16.3 | — |
@@ -393,7 +395,7 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `speed` | `speed` | 速度倍率（0.05–20） |
 | `undo` | — | 悔棋：人机退两步（自己 + AI 应手），其余退一步 |
 | `resign` | — | 人类一方认输 |
-| `new` | `white`、`black`（可选） | 重开；给了选手写法就同时切换对局双方（人机 ↔ 机机） |
+| `new` | `white`、`black`（可选） | 重开；给了选手写法就同时切换对局双方（人类↔AI、AI↔AI）。写法非法 → `400` 且**原局不变** |
 
 `result` 对象：`{"ok":bool, "code":int, "reason":str, "move":str|null}`（`Result` 的 JSON 化）。
 

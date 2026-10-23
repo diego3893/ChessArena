@@ -55,6 +55,39 @@ body {
 
 .modes { display: flex; gap: 6px; margin-left: auto; }
 
+.players-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.players-pick label { display: flex; align-items: center; gap: 6px; }
+.players-pick select {
+  background: var(--bg-soft);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  min-width: 128px;
+  cursor: pointer;
+}
+.players-pick select:hover { border-color: var(--accent); }
+.players-pick .vs { color: var(--muted); }
+.players-pick button {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-soft));
+  border-color: var(--accent);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.players-pick button:hover { background: color-mix(in srgb, var(--accent) 30%, var(--bg-soft)); }
+
 .modes button,
 .controls button,
 .speed button,

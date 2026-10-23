@@ -12,10 +12,12 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo">♞</span>ChessArena<small id="version"></small></div>
-    <nav class="modes" id="modes">
-      <button data-mode="hva" class="active">人机</button>
-      <button data-mode="ava">机机</button>
-    </nav>
+    <div class="players-pick">
+      <label>白方 <select id="pick-white" title="白方由谁走"></select></label>
+      <span class="vs">vs</span>
+      <label>黑方 <select id="pick-black" title="黑方由谁走"></select></label>
+      <button id="btn-apply" title="按上面两个选择开新对局">开局</button>
+    </div>
     <div class="conn" id="conn">连接中…</div>
   </header>
 

@@ -347,6 +347,56 @@ class TestResilience(unittest.TestCase):
             self.assertTrue(fx.get("/debug")[1]["driver_alive"])
 
 
+class TestPlayers(unittest.TestCase):
+    """UI 的选手下拉框依赖这些数据。"""
+
+    def test_players_endpoint(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.get("/players")
+            self.assertEqual(status, 200)
+            self.assertTrue(body["human"])
+            self.assertEqual(body["builtin"], ["random", "greedy", "minimax2", "minimax3", "stockfish"])
+            self.assertEqual(body["agents"], [])
+
+    def test_snapshot_exposes_current_players(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            _, state = fx.get("/state")
+            self.assertEqual(state["players"], {"w": "human", "b": "builtin:greedy"})
+
+    def test_switch_to_ai_vs_ai(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.post(
+                "/control",
+                {"action": "new", "white": "builtin:random", "black": "builtin:greedy"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(body["state"]["players"],
+                             {"w": "builtin:random", "b": "builtin:greedy"})
+            self.assertEqual(body["state"]["human"], {"w": False, "b": False})
+            fx.wait_ply(1)
+
+    def test_switch_to_human_vs_human(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.post(
+                "/control", {"action": "new", "white": "human", "black": "human"}
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(body["state"]["human"], {"w": True, "b": True})
+            status, body = fx.post("/move", {"move": "e2e4"})
+            self.assertEqual(status, 200, msg=body)
+
+    def test_unknown_spec_is_rejected(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.post(
+                "/control", {"action": "new", "white": "builtin:nope", "black": "human"}
+            )
+            self.assertEqual(status, 400, msg=body)
+            # 失败时对局保持原样，不能悄悄换掉一方
+            _, state = fx.get("/state")
+            self.assertEqual(state["players"], {"w": "human", "b": "builtin:greedy"})
+            self.assertEqual(state["ply"], 0)
+
+
 class TestRecordMode(unittest.TestCase):
     def test_record_writes_jsonl(self):
         # 用工作区内的 runs/ 下临时子目录（沙箱不允许删系统 temp）
