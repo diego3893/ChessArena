@@ -166,6 +166,26 @@ class TestHttpEndpoints(unittest.TestCase):
             status, body = fx.post("/control", {"action": "nope"})
             self.assertEqual(status, 400)
 
+    def test_invalid_speed_does_not_poison_snapshots(self):
+        with ServerFixture("api", "api") as fx:
+            before = fx.get("/state")[1]
+            for speed in (float("inf"), float("-inf"), float("nan"), "inf", "NaN", {}, [], True, 10**1000):
+                with self.subTest(speed=str(speed)[:40]):
+                    status, body = fx.post("/control", {"action": "speed", "speed": speed})
+                    self.assertEqual(status, 400)
+                    self.assertIn("error", body)
+                    after = fx.get("/state")[1]
+                    for field in ("speed", "revision", "fen", "game_id"):
+                        self.assertEqual(after[field], before[field])
+            self.assertEqual(fx.post("/move", {"move": "e2e4", "side": "w"})[0], 200)
+
+    def test_startup_speed_validation_and_minimum(self):
+        with ServerFixture("api", "api", speed=0) as fx:
+            self.assertEqual(fx.get("/state")[1]["speed"], 0.05)
+            for speed in (float("inf"), float("nan"), {}, True):
+                with self.subTest(speed=speed), self.assertRaises(ValueError):
+                    Session(fx.arena, "api", "api", speed=speed)
+
 
 class TestClient(unittest.TestCase):
     def test_client_isomorphic(self):

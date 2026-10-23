@@ -6,6 +6,7 @@
 """
 
 import sys
+import math
 import threading
 import time
 
@@ -54,7 +55,7 @@ class Session:
         self.hub = Hub()
         self._lock = threading.RLock()
         self._paused = False
-        self._speed = float(speed)
+        self._speed = self._validated_speed(speed)
         self._base_delay = 0.35  # 1× 速度下 AI 每步间隔，给页面看清楚
         self._stop = False
         self._game = None
@@ -70,6 +71,18 @@ class Session:
         self._driver.start()
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _validated_speed(value):
+        try:
+            if isinstance(value, bool):
+                raise ValueError
+            speed = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("speed须为有限数值") from exc
+        if not math.isfinite(speed):
+            raise ValueError("speed须为有限数值")
+        return max(0.05, speed)
+
     @property
     def game(self):
         with self._lock:
@@ -208,7 +221,7 @@ class Session:
                 self._paused = False
             elif action == "speed":
                 if speed is not None:
-                    self._speed = max(0.05, float(speed))
+                    self._speed = self._validated_speed(speed)
             elif action == "step":
                 if not game.over and not self._is_manual(game.turn):
                     game.step()

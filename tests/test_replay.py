@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import chess
@@ -60,6 +61,28 @@ class TestReplayParser(unittest.TestCase):
         self.assertEqual(len(game["frames"]), 1)
         self.assertEqual(game["moves"], [])
 
+    def test_compact_headers_are_not_silently_discarded(self):
+        games = replay.parse_pgn('[White "A"][Black "B"] [Result "1-0"] 1. e4 1-0\n\n[Event "Next"][White "C"] *')["games"]
+        self.assertEqual(len(games), 2)
+        self.assertEqual(games[0]["headers"]["White"], "A")
+        self.assertEqual(games[0]["headers"]["Black"], "B")
+        self.assertEqual(games[0]["result"], "1-0")
+        self.assertEqual(games[1]["headers"]["White"], "C")
+
+    def test_result_integrity(self):
+        for text in ('[Result "0-1"]\n\n1. e4 e5 1-0', '1. e4 1-0 e5 *', '1. e4 * 0-1'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                replay.parse_pgn(text)
+        game = replay.parse_pgn('[Result "*"]\n\n1. e4 1-0')["games"][0]
+        self.assertEqual(game["result"], "1-0")
+
+    def test_duplicate_headers_cannot_overwrite_recorded_metadata(self):
+        for text in ('[Result "1-0"] [Result "0-1"] 1. e4 0-1',
+                     '[White "A"]\n[White "B"]\n\n*',
+                     '[Result "*"] [Result "*"] *'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                replay.parse_pgn(text)
+
     def test_rejects_damaged_illegal_or_nonstandard_record(self):
         for text in (None, 123, "", "nonsense", "1. e4 e5 2. Bogus *", "1. e5 *", "1. e4 {missing",
                      "1. e4 ) *", "1. -- *", '[FEN "8/8/8/8/8/8/8/8 w - - 0 1"]\n\n*',
@@ -72,6 +95,13 @@ class TestReplayParser(unittest.TestCase):
                      ("[Event \"Empty\"]\n\n*\n\n" * (replay.MAX_GAMES + 1))):
             with self.assertRaises(ValueError):
                 replay.parse_pgn(text)
+
+    def test_move_limit_counts_variations(self):
+        text = '1. e4 e5 (1... c5) 2. Nf3 Nc6 *'
+        with patch.object(replay, "MAX_MOVES", 4), self.assertRaises(ValueError):
+            replay.parse_pgn(text)
+        with patch.object(replay, "MAX_MOVES", 5):
+            self.assertEqual(len(replay.parse_pgn(text)["games"][0]["moves"]), 4)
 
 
 class TestRecordStore(unittest.TestCase):
@@ -126,7 +156,8 @@ class TestReplayHttp(unittest.TestCase):
             status, data = fx.post("/replay/parse", {"pgn": "1. e4 e5 *"})
             self.assertEqual(status, 200)
             self.assertEqual(len(data["games"][0]["frames"]), 3)
-            for payload in ({}, {"pgn": "1. e5 *"}, {"pgn": "garbage"}, {"pgn": [1]}):
+            for payload in ({}, {"pgn": "1. e5 *"}, {"pgn": "garbage"}, {"pgn": [1]},
+                            {"pgn": '[Result "0-1"]\n\n1. e4 1-0'}, {"pgn": '1. e4 * e5'}):
                 self.assertEqual(fx.post("/replay/parse", payload)[0], 400)
             Path("runs").mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="replay-test-", dir="runs") as directory:

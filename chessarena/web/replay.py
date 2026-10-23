@@ -15,7 +15,7 @@ MAX_RECORDS = 500
 # python-chess会跳过未知文本，先检查词法，避免把损坏的记录静默截短。
 _TOKEN = re.compile(
     r'\s+|^%[^\n]*|\{[^}]*\}|;[^\n]*|'
-    r'\[[A-Za-z0-9_]+\s+"(?:[^"\\]|\\.)*"\s*\]|'
+    r'\[[ \t]*[A-Za-z0-9_]+[ \t]+"(?:[^"\\\r\n]|\\.)*"[ \t]*\]|'
     r'1/2-1/2|1-0|0-1|\*|\d+\.(?:\.\.)?|\$\d+|[!?]+|[()]|'
     r'(?:O-O(?:-O)?|0-0(?:-0)?|[NBKRQ]?[a-h]?[1-8]?[-x]?[a-h][1-8]'
     r'(?:=?[nbrqkNBRQK])?|--|Z0|0000|@@@@)[+#]?',
@@ -30,6 +30,8 @@ def parse_pgn(text):
         raise ValueError("PGN文件不能超过2MiB")
     text = text.lstrip("\ufeff")
     position = depth = 0
+    normalized = []
+    in_headers = False
     for token in _TOKEN.finditer(text):
         if token.start() != position:
             raise ValueError("PGN含有无法识别的内容：" + text[position:position + 32])
@@ -40,17 +42,54 @@ def parse_pgn(text):
             depth -= 1
         if not 0 <= depth <= 64:
             raise ValueError("PGN变例括号不匹配或嵌套过深")
+        value = token.group()
+        if value.startswith("["):
+            if not in_headers:
+                normalized.append("\n\n")
+            normalized.append(value + "\n")
+            in_headers = True
+        elif not (in_headers and value.isspace()):
+            if in_headers:
+                normalized.append("\n")
+                in_headers = False
+            normalized.append(value)
     if position != len(text) or depth:
         raise ValueError("PGN格式不完整或含有无法识别的内容")
 
     move_count = 0
 
     class CheckedBuilder(chess.pgn.GameBuilder):
+        def __init__(self):
+            super().__init__()
+            self.seen_headers = set()
+            self.declared_result = None
+            self.finished = False
+
+        def visit_header(self, tagname, tagvalue):
+            if tagname in self.seen_headers:
+                raise ValueError("PGN存在重复标签：" + tagname)
+            self.seen_headers.add(tagname)
+            if tagname == "Result":
+                if tagvalue not in {"1-0", "0-1", "1/2-1/2", "*"}:
+                    raise ValueError("PGN的Result标签无效")
+                self.declared_result = tagvalue
+            super().visit_header(tagname, tagvalue)
+
+        def visit_result(self, result):
+            if self.finished:
+                raise ValueError("同一盘PGN包含多个结果标记")
+            if self.declared_result not in {None, "*", result}:
+                raise ValueError("PGN的Result标签与正文结果不一致")
+            self.finished = True
+            super().visit_result(result)
+
         def handle_error(self, error):
             raise ValueError("PGN解析失败：" + str(error)) from error
 
         def visit_move(self, board, move):
             nonlocal move_count
+            if self.finished:
+                raise ValueError("PGN的结果标记后不能继续走棋")
             move_count += 1
             if move_count > MAX_MOVES:
                 raise ValueError("PGN总着法数不能超过10000（含变例）")
@@ -58,7 +97,8 @@ def parse_pgn(text):
                 raise ValueError("PGN包含非法局面或着法：" + move.uci())
             super().visit_move(board, move)
 
-    stream = io.StringIO(text)
+    # python-chess逐行读取标签，只保留同一行的第一个；规范化以保全紧凑PGN的标签。
+    stream = io.StringIO("".join(normalized))
     games = []
     while True:
         try:
