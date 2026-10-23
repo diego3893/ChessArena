@@ -17,6 +17,7 @@ const ui = {
   mode: "live",
   importToken: 0,
   recordsToken: 0,
+  connectionEpoch: 0,
   sourceName: "",
   ground: null,
   orientation: "white",
@@ -71,6 +72,11 @@ function applyState(st) {
     } else if (st.game_id === cur.game_id && typeof st.ply === "number" && st.ply < cur.ply) {
       return;
     }
+  }
+  if (ui.pendingPromo && (st.game_id !== cur?.game_id || st.revision !== cur?.revision ||
+      st.fen !== cur?.fen || !canMove(st))) {
+    ui.pendingPromo = null;
+    $("#promo").classList.add("hidden");
   }
   ui.state = st;
   try {
@@ -241,6 +247,7 @@ function syncSpeed(st) {
 // ---------------------------------------------------------------- 落子
 async function sendMove(move) {
   if (ui.mode !== "live") return;
+  const epoch = ui.connectionEpoch;
   try {
     const res = await fetch("/move", {
       method: "POST",
@@ -248,9 +255,11 @@ async function sendMove(move) {
       body: JSON.stringify({ move }),
     });
     const body = await res.json();
+    if (epoch !== ui.connectionEpoch) return;
     if (body.result && !body.result.ok) toast(body.result.reason, "bad");
     if (body.state) applyState(body.state);
   } catch (err) {
+    if (epoch !== ui.connectionEpoch) return;
     toast("网络错误：" + err.message, "bad");
     if (ui.state) applyState(ui.state);
   }
@@ -294,6 +303,7 @@ function bindPromo() {
 // ---------------------------------------------------------------- 控制
 async function control(payload) {
   if (ui.mode !== "live") return null;
+  const epoch = ui.connectionEpoch;
   try {
     const res = await fetch("/control", {
       method: "POST",
@@ -301,6 +311,7 @@ async function control(payload) {
       body: JSON.stringify(payload),
     });
     const body = await res.json();
+    if (epoch !== ui.connectionEpoch) return null;
     if (!res.ok) {
       toast(body.error || "控制失败", "bad");
       return null;
@@ -308,6 +319,7 @@ async function control(payload) {
     if (body.state) applyState(body.state);
     return body;
   } catch (err) {
+    if (epoch !== ui.connectionEpoch) return null;
     toast("网络错误：" + err.message, "bad");
     return null;
   }
@@ -421,7 +433,9 @@ async function refreshRecords() {
     select.replaceChildren(new Option(data.records.length ? "选择服务器PGN记录" : "runs/和results/中暂无PGN", ""));
     for (const record of data.records) select.add(new Option(record.id, record.id));
     if ([...select.options].some(option => option.value === previous)) select.value = previous;
-  } catch (err) { toast("刷新失败：" + err.message, "bad"); }
+  } catch (err) {
+    if (token === ui.recordsToken) toast("刷新失败：" + err.message, "bad");
+  }
 }
 
 async function importReplay(name, request) {
@@ -559,17 +573,20 @@ function connect() {
   ui.ws = ws;
 
   ws.onopen = () => {
+    if (ui.ws !== ws) return;
     setConn(true);
     ui.lastMsgAt = Date.now();
     ws.send(JSON.stringify({ type: "ping" }));
   };
   ws.onclose = () => {
+    if (ui.ws !== ws) return;
     setConn(false);
     ui.ws = null;
     setTimeout(connect, 1200);
   };
-  ws.onerror = () => setConn(false);
+  ws.onerror = () => { if (ui.ws === ws) setConn(false); };
   ws.onmessage = (event) => {
+    if (ui.ws !== ws) return;
     ui.lastMsgAt = Date.now();
     let msg;
     try {
@@ -579,6 +596,11 @@ function connect() {
     }
     switch (msg.type) {
       case "hello":
+        // 修订号只在一次服务运行中有序；重连以新握手为准，丢弃此前HTTP响应。
+        ui.connectionEpoch++;
+        ui.state = null;
+        ui.pendingPromo = null;
+        $("#promo").classList.add("hidden");
         if (msg.version) $("#version").textContent = " v" + msg.version;
         applyState(msg.state);
         break;
@@ -608,9 +630,11 @@ function watchdog() {
       connect();
       return;
     }
+    const epoch = ui.connectionEpoch;
     fetch("/state")
       .then((r) => r.json())
       .then((st) => {
+        if (epoch !== ui.connectionEpoch) return;
         ui.lastMsgAt = Date.now();
         applyState(st);
       })
