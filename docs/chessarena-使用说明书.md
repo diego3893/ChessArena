@@ -106,30 +106,30 @@ python -m chessarena serve
 - 一方出错会弹出原因（如"黑方重试次数用尽，判负"），不会静默卡住
 
 ### 3. 学生 AI vs 内置 AI
-ai 列表里会**自动出现** `agents/` 目录下你写的所有 Agent，选它就能下场，跟内置档位对打。
+下拉框里会**自动出现** `agents/` 目录下你写的所有 `Agent`（以及 `agents/agents.json` 里注册的 UCI / HTTP 对手），选它就能下场，跟内置档位对打。
 
 ### 4. 联赛（最实用的教学工具）
-选「联赛」，页面变成一个实时排行榜：
+一条命令跑循环赛，生成一份 HTML 排行榜：
 
-```
-┌─ 联赛：2026 春季班 · 第 3 轮 ─────────────────────────────────────────┐
-│ 进度 ████████░░░░░░░░░  22/45 局                    [暂停] [单步] [0.5×]│
-├───────────────────────────────────────────────────────────────────────┤
-│ #   AI 名称              作者      ELO   胜  和  负    胜率            │
-│ 1   迭代加深 v2          张同学    1487    7   1   0    93%            │
-│ 2   内置 minimax3        —        1500    6   2   0    87%            │
-│ 3   置换表尝试           李同学    1421    5   2   1    71%            │
-│ 4   贪心的邻居           王同学    1338    3   3   2    50%            │
-│ ...                                                                   │
-├───────────────────────────────────────────────────────────────────────┤
-│ 正在对局：迭代加深 v2 (白) vs 贪心的邻居 (黑)   ← 点进去可围观这盘棋   │
-└───────────────────────────────────────────────────────────────────────┘
+```bash
+python -m chessarena league --players random,greedy,minimax2,agents/张同学.py \
+    --rounds 2 --openings 8 --concurrent 4
 ```
 
-跑完自动生成 `results/league-2026-xx.html`：ELO 表、胜率矩阵（每个 AI 对每个 AI 的战绩）、全部 PGN 打包。断线可续跑。
+- 每对选手下 `2*rounds` 局，黑白各一次；开局先随机走 `openings` 步，避免所有对局一模一样。
+- 报告在 `results/league-<时间>/index.html`，包含：ELO 榜、胜/和/负、得分率、**非法率**、平均每步耗时，以及每局 PGN 下载链接。
+- 进度实时打印在终端；中途中断后**重跑同一条命令会跳过已完成的局**（结果记录在 `results/league-*/games.jsonl`）。
 
 ### 5. 复盘
-每局自动存 PGN。点「复盘」进入回放模式：← → 逐帧、点着法列表任意跳转、可导出 `.pgn` 直接拖进 lichess 做深度分析。
+每局都能存 PGN：页面「导出 PGN」，或 `python -m chessarena play --pgn runs/x.pgn`。
+终端回放：
+
+```bash
+python -m chessarena replay runs/x.pgn            # 快速过一遍记谱
+python -m chessarena replay runs/x.pgn --board --delay 0.3   # 每步打印棋盘
+```
+
+页面内的逐帧回放（读 `runs/<game_id>.jsonl` 录像）留作后续版本。
 
 ---
 
@@ -296,11 +296,11 @@ game.on("opponent_move", lambda mv: print("对手走了", mv))  # 事件回调�
 ```python
 arena = Arena(live=True)                    # 落子真的画到页面上，棋子会动
 arena = Arena(live=False)                   # 纯计算，不画，页面可以关掉
-arena = Arena(live=False, record=True)      # 不画但录像，训练完在页面上回放
+arena = Arena(live=False, record=True)      # 不画但录像（runs/<game_id>.jsonl），事后回放
 ```
 
 **这就是"训练和最终对战都能操作该页面"的正解**：训练用 `live=False` 跑，否则浏览器渲染会成瓶颈
-（慢 2–3 个数量级）；想看着它下就用 `live=True`；想事后复盘就 `record=True` 再回放。
+（慢 2–3 个数量级）；想看着它下就用 `live=True`；想事后复盘就 `record=True` 存事件流（页面内回放留作后续）。
 **方法名、返回值和校验逻辑在三种模式下完全一致**——同一份 AI 代码，改一个参数就从"训练"切到"上台表演"。
 
 ### 两种接入位置
@@ -393,24 +393,24 @@ builtin: [random, greedy, minimax2, minimax3, stockfish]
 ```
 ChessArena/                    # 项目根（仓库名）
 ├── chessarena/                # 平台本体
-│   ├── core/                  # 裁判 Game、Board、State、Agent、Arena、录像
-│   ├── builtin/               # 内置 L1 random / L2 greedy（L3–L5 在阶段 4）
+│   ├── core/                  # 裁判 Game、Board、State、Agent、Arena、录像、外部对手
+│   ├── builtin/               # 五档内置（random / greedy / minimax2 / minimax3 / stockfish）
+│   ├── engines/               # UCI 引擎适配
 │   ├── web/                   # FastAPI 服务 + WebSocket
 │   │   └── ui/                # 页面：index.html / app.js / style.css
+│   ├── league.py              # 循环赛 + ELO + HTML 报告
 │   ├── client.py              # 跨进程 Client
-│   └── cli.py                 # python -m chessarena play / serve
+│   └── cli.py                 # play / serve / test / league / replay
 ├── vendor/chessground/        # 前端预构建产物（零构建，直接引）
 ├── thirdparty/                # chessground 源码克隆 + Stockfish（已解压）
-├── tests/                     # unittest：内核 + 服务 + 前端接线
-├── runs/                      # 录像 runs/<game_id>.jsonl、日志
-├── results/                   # 联赛报告（阶段 5）
-├── agents/                    # ★ 学生把自己的 AI 放这里（阶段 6）
-├── assignments/               # 作业模板与评分脚本（阶段 6）
-├── config.yaml                # 改端口、超时、联赛设置（阶段 6）
-└── start.bat                  # Windows 一键启动（阶段 6）
+├── tests/                     # unittest：内核 / 服务 / 前端接线 / 联赛 / 外部对手
+├── runs/                      # 录像 runs/<game_id>.jsonl、自评 JSON
+├── results/                   # 联赛报告（results/league-*/index.html + pgn/）
+├── agents/                    # ★ 学生把自己的 AI 放这里（examples/ 有 3 个样例）
+├── assignments/               # ★ 作业骨架（eval/minimax）与 grade.py 评分脚本
+├── config.yaml                # 端口、每步时限、重试、联赛参数
+└── start.bat                  # Windows 一键启动
 ```
-
-> 现阶段 `agents/`、`assignments/`、`config.yaml`、`start.bat` 还没有落地——它们属于阶段 6，代码已经能按默认值跑通。
 
 ---
 
@@ -460,7 +460,7 @@ A：棋盘变灰说明对局已结束；或者轮到 AI 走、你在点自己的
 A：先看状态栏：显示"黑方思考中…"说明服务端正在算，等 3 秒；如果长时间不动，页面会在 5 秒内自动用 HTTP 把局面校准回来。仍不行时看服务器终端有没有 `[chessarena]` 开头的日志，浏览器按 F12 看控制台；`GET /debug` 会给出驱动线程状态、空转次数与最近一次异常。
 
 **Q：学生的 AI 一步要 30 秒，一直判负。**
-A：把 `config.yaml` 的 `timeout` 调到 10（或 `python -m chessarena serve --timeout` 暂无此参数时改默认值）。但**别只为自己的 AI 调**——联赛里所有 AI 同一标准。
+A：`python -m chessarena serve --timeout 10`，或改 `config.yaml` 的 `game.timeout`。但**别只为自己的 AI 调**——联赛里所有 AI 同一标准。
 
 **Q：L5 的 Stockfish 打不开？**
 A：引擎已随包放在 `thirdparty/stockfish/stockfish-windows-x86-64-universal.exe`（zip 解压即可）。找不到时按顺序取：环境变量 `CHESSARENA_STOCKFISH` → 该默认路径。棋力用 `CHESSARENA_STOCKFISH_ELO=1800`（1320–3190），每步用时用 `CHESSARENA_STOCKFISH_MOVETIME=0.6`。不想用就把 `builtin:stockfish` 从对局双方里换掉。

@@ -241,11 +241,11 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 
 | 命令 | 用途 |
 |---|---|
-| `python -m chessarena serve [--port 8000]` | 起网页 |
-| `python -m chessarena play --white A --black B [--live]` | 命令行跑一局，打印 PGN |
-| `python -m chessarena test agents/x.py --vs builtin:greedy --games 20` | 批量自测，输出胜率与用时 |
-| `python -m chessarena league config.yaml` | 跑联赛，生成 `results/*.html` |
-| `python -m chessarena replay results/x.pgn` | 终端回放 |
+| `python -m chessarena serve [--port 8000] [--white …] [--black …]` | 起网页 |
+| `python -m chessarena play --white A --black B [--pgn runs/x.pgn]` | 命令行跑一局，打印 PGN |
+| `python -m chessarena test agents/x.py --vs builtin:greedy --games 20` | 批量自测，输出胜率与每步耗时 |
+| `python -m chessarena league --players random,greedy,minimax2 --rounds 2` | 跑联赛，生成 `results/league-*/index.html` |
+| `python -m chessarena replay results/x.pgn [--board] [--delay 0.3]` | 终端回放 |
 
 ---
 

@@ -16,7 +16,13 @@ import chess
 import chess.pgn
 
 from .board import Board
-from .errors import ChessArenaTimeout, GameOverError, IllegalMoveError, NotYourTurnError
+from .errors import (
+    ChessArenaTimeout,
+    GameOverError,
+    IllegalMoveError,
+    NotYourTurnError,
+    TransientError,
+)
 from .moves import parse_uci
 from .result import Result
 from .rc import RC
@@ -396,6 +402,15 @@ class Game:
                 move = self._ask(agent, side, remaining)
             except ChessArenaTimeout:
                 return self._dispose(side, "timeout")
+            except TransientError as exc:
+                # 外部对手这一次失败（HTTP 5xx / 引擎退出）：计入重试，别直接判负
+                attempts += 1
+                self._log("%s 外部对手本步失败（第 %d 次）：%r"
+                          % (_SIDE_TEXT[side], attempts, exc))
+                self._emit("retry", side, attempts, Result(RC.ILLEGAL_MOVE, str(exc), None))
+                if attempts > self.max_retries:
+                    return self._dispose(side, "retry_exhausted", detail=str(exc))
+                continue
             except Exception as exc:
                 self._log("%s 思考时抛异常：%r" % (_SIDE_TEXT[side], exc))
                 return self._dispose(side, "error", detail=repr(exc))

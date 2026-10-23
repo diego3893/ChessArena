@@ -1,7 +1,7 @@
 """命令行入口：``python -m chessarena <命令>``。
 
-阶段 1 只实现 ``play``（命令行跑一局并打印 PGN）与 ``version``；
-``serve`` / ``league`` / ``test`` / ``replay`` 会在后续阶段接上。
+``play`` 跑一局、``serve`` 起网页、``test`` 自测学生 AI、``league`` 跑联赛、
+``replay`` 终端回放 PGN。
 """
 
 import argparse
@@ -12,6 +12,7 @@ from pathlib import Path
 from . import __version__
 from .core.arena import Arena
 from .core.game import REASON_TEXT
+
 
 def _utf8_stdout():
     """让中文输出不依赖控制台代码页（Windows 默认 gbk 会乱码）。"""
@@ -74,7 +75,11 @@ def cmd_serve(args):
     from .web.server import serve
     from .web.session import Session
 
-    arena = Arena(live=True, seed=args.seed, config=args.config)
+    arena = Arena(live=True, seed=args.seed, config=args.config,
+                  timeout=args.timeout, max_retries=args.max_retries)
+    server_cfg = arena.config.get("server", {})
+    host = args.host or server_cfg.get("host", "127.0.0.1")
+    port = args.port or int(server_cfg.get("port", 8000))
     try:
         session = Session(arena, args.white, args.black, fen=args.fen, speed=args.speed)
     except Exception as exc:
@@ -82,10 +87,10 @@ def cmd_serve(args):
         print("启动失败：%s" % (exc,), file=sys.stderr)
         return 1
     print("ChessArena %s · 页面 http://%s:%d/ · 对手：白=%s 黑=%s"
-          % (__version__, args.host, args.port, args.white, args.black))
+          % (__version__, host, port, args.white, args.black))
     print("按 Ctrl+C 结束。")
     try:
-        serve(session, host=args.host, port=args.port)
+        serve(session, host=host, port=port)
     except KeyboardInterrupt:
         pass
     finally:
@@ -94,8 +99,149 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_league(args):
+    from .league import League
+
+    players = _parse_players(args.players)
+    out = args.out or "results/league-%s" % time.strftime("%Y%m%d-%H%M%S")
+    league = League(
+        players,
+        rounds=args.rounds,
+        openings=args.openings,
+        max_concurrent=args.concurrent,
+        seed=args.seed,
+        timeout=args.timeout,
+        max_plies=args.max_plies,
+        config=args.config,
+    )
+    print("联赛：%d 名选手 · 每对 %d 局（黑白各一）· 随机开局 %d 步 · 并发 %d"
+          % (len(players), 2 * args.rounds, args.openings, args.concurrent))
+    print("选手：%s" % ("、".join(players),))
+    result = league.run(out, progress=print, resume=not args.no_resume)
+    print()
+    print("%-24s %6s %5s %4s %4s %4s %8s" % ("AI", "ELO", "场次", "胜", "和", "负", "得分率"))
+    for row in result.rows:
+        print("%-24s %6.0f %5d %4d %4d %4d %7.1f%%  非法率 %.2f%%  平均 %.3fs/步"
+              % (row["name"], row["elo"], row["games"], row["wins"], row["draws"],
+                 row["losses"], row["win_rate"], row["illegal_rate"], row["avg_move_seconds"]))
+    print()
+    print("报告：%s" % (result.report_path,))
+    print("PGN ：%s" % (result.pgn_dir,))
+    return 0
+
+
+def _parse_players(text):
+    players = []
+    for item in (text or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if item.startswith(("builtin:", "agents/", "uci:", "http:")):
+            players.append(item)
+        else:
+            players.append("builtin:" + item)
+    return players or ["builtin:random", "builtin:greedy", "builtin:minimax2"]
+
+
+def _run_for_test(agent, opponent, *, seed, timeout, max_plies, swap, config="config.yaml"):
+    """跑一局并记录每步耗时。返回 (result, 我执的颜色, 步时列表)。"""
+    arena = Arena(live=False, seed=seed, timeout=timeout, config=config)
+    white, black = (opponent, agent) if swap else (agent, opponent)
+    try:
+        game = arena.new_game(white=white, black=black)
+        mine = "b" if swap else "w"
+        move_times = []
+        last = time.monotonic()
+
+        def on_move(move, result):
+            nonlocal last
+            now = time.monotonic()
+            move_times.append(now - last)
+            last = now
+
+        game.on("move", on_move)
+        game.run_to_end(max_plies=max_plies)
+        return game.result or "*", mine, move_times
+
+    finally:
+        arena.close()
+
+
+def cmd_test(args):
+    spec = args.agent
+    opponent = args.opponent
+    games = max(1, args.games)
+    wins = draws = losses = 0
+    times = []
+    rejected = 0
+    plies = 0
+    started = time.monotonic()
+
+    for i in range(games):
+        result, mine, move_times = _run_for_test(
+            spec, opponent, seed=args.seed + i, timeout=args.timeout,
+            max_plies=args.max_plies, swap=(i % 2 == 1), config=args.config,
+        )
+        # 只取被测方的步时（白先：索引 0,2,4…；黑：1,3,5…）
+        mine_times = move_times[0::2] if mine == "w" else move_times[1::2]
+        times.extend(mine_times)
+        plies += len(move_times)
+        if result == "1/2-1/2":
+            draws += 1
+        elif (result == "1-0" and mine == "w") or (result == "0-1" and mine == "b"):
+            wins += 1
+        else:
+            losses += 1
+
+    total = max(1, wins + draws + losses)
+    avg = sum(times) / len(times) if times else 0.0
+    longest = max(times) if times else 0.0
+    print("%d 胜 %d 和 %d 负 · 胜率 %.1f%% · 平均每步 %.2fs · 最长 %.2fs · 总用时 %.1fs"
+          % (wins, draws, losses, 100.0 * wins / total, avg, longest,
+             time.monotonic() - started))
+    print("对被测方：%s vs %s（%d 局，%d 半步）" % (spec, opponent, games, plies))
+    return 0
+
+
+def cmd_replay(args):
+    import chess
+    import chess.pgn
+
+    path = Path(args.pgn)
+    if not path.exists():
+        print("找不到 PGN：%s" % (path,), file=sys.stderr)
+        return 2
+    with path.open("r", encoding="utf-8") as handle:
+        game = chess.pgn.read_game(handle)
+    if game is None:
+        print("这个文件不是 PGN：%s" % (path,), file=sys.stderr)
+        return 2
+
+    board = chess.Board()
+    if game.headers.get("FEN"):
+        board.set_fen(game.headers["FEN"])
+    print("白：%s   黑：%s" % (game.headers.get("White", "?"), game.headers.get("Black", "?")))
+    line = []
+    count = 0
+    for count, move in enumerate(game.mainline_moves(), 1):
+        san = board.san(move)
+        board.push(move)
+        line.append(san)
+        if len(line) == 2:
+            print("%3d. %-7s %-7s" % (count // 2, line[0], line[1]))
+            line = []
+        if args.board:
+            print(board)
+        if args.delay:
+            time.sleep(args.delay)
+    if line:
+        print("%3d. %-7s" % (count // 2 + 1, line[0]))
+    print("结果：%s" % (game.headers.get("Result", "*"),))
+    return 0
+
+
 def cmd_stub(args):
-    print("命令 %r 尚未实现（当前有 play / serve / version）。见 PROJECT_CONTEXT.md §6。" % (args.command,))
+    print("命令 %r 尚未实现（当前有 play / serve / test / league / replay / version）。" % (args.command,))
     return 2
 
 
@@ -125,16 +271,45 @@ def build_parser():
     serve.add_argument("--white", default="human", help="白方（默认人类）")
     serve.add_argument("--black", default="builtin:greedy", help="黑方")
     serve.add_argument("--fen", default=None)
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--host", default=None, help="默认取 config.yaml 的 server.host")
+    serve.add_argument("--port", type=int, default=None, help="默认取 config.yaml 的 server.port")
     serve.add_argument("--speed", type=float, default=1.0, help="AI 落子速度倍率")
+    serve.add_argument("--timeout", type=float, default=None, help="每步总时长（秒）")
+    serve.add_argument("--max-retries", type=int, default=None, dest="max_retries")
     serve.add_argument("--seed", type=int, default=0)
     serve.add_argument("--config", default="config.yaml")
     serve.set_defaults(func=cmd_serve)
 
-    for name in ("league", "test", "replay"):
-        stub = sub.add_parser(name, help="（尚未实现）")
-        stub.set_defaults(func=cmd_stub)
+    league = sub.add_parser("league", help="跑循环赛并生成 ELO 报告")
+    league.add_argument("--players", default="random,greedy,minimax2",
+                        help="逗号分隔；可写 random 或 builtin:random 或 agents/x.py")
+    league.add_argument("--rounds", type=int, default=2, help="每对下 2*rounds 局（黑白各一）")
+    league.add_argument("--openings", type=int, default=8, help="随机开局步数")
+    league.add_argument("--concurrent", type=int, default=4, help="并发进程数")
+    league.add_argument("--out", default=None, help="输出目录（默认 results/league-<时间>）")
+    league.add_argument("--seed", type=int, default=0)
+    league.add_argument("--timeout", type=float, default=3.0)
+    league.add_argument("--max-plies", type=int, default=600, dest="max_plies")
+    league.add_argument("--no-resume", action="store_true", dest="no_resume",
+                        help="忽略输出目录里已完成的局")
+    league.add_argument("--config", default="config.yaml")
+    league.set_defaults(func=cmd_league)
+
+    test = sub.add_parser("test", help="批量自测一个学生 AI")
+    test.add_argument("agent", help="如 agents/my_agent.py")
+    test.add_argument("--vs", default="builtin:greedy", dest="opponent", help="对手写法")
+    test.add_argument("--games", type=int, default=10)
+    test.add_argument("--seed", type=int, default=0)
+    test.add_argument("--timeout", type=float, default=3.0)
+    test.add_argument("--max-plies", type=int, default=400, dest="max_plies")
+    test.add_argument("--config", default="config.yaml")
+    test.set_defaults(func=cmd_test)
+
+    replay = sub.add_parser("replay", help="终端回放 PGN")
+    replay.add_argument("pgn", help="PGN 文件路径")
+    replay.add_argument("--delay", type=float, default=0.0, help="每步停顿秒数")
+    replay.add_argument("--board", action="store_true", help="每步打印棋盘")
+    replay.set_defaults(func=cmd_replay)
     return parser
 
 

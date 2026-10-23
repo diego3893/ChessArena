@@ -32,3 +32,10 @@ class AgentLoadError(ChessArenaError):
 
 class EngineError(ChessArenaError):
     """外部引擎（UCI 子进程）启动失败或异常退出。"""
+
+
+class TransientError(ChessArenaError):
+    """外部对手这一次失败但可以重试（HTTP 4xx/5xx、引擎中途退出等）。
+
+    裁判会把它计入该步的重试预算，而不是直接判负。
+    """

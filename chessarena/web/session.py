@@ -148,11 +148,11 @@ class Session:
 
     def available_players(self) -> dict:
         """给页面下拉框用：可选的人类 / 内置档 / 已加载的 agents。"""
-        return {
-            "human": True,
-            "builtin": self.arena.builtins(),
-            "agents": list(self.arena.agents() or []),
-        }
+        agents = [
+            {"name": info.name, "path": info.path, "spec": info.spec}
+            for info in (self.arena.agents() or [])
+        ]
+        return {"human": True, "builtin": self.arena.builtins(), "agents": agents}
 
     # ------------------------------------------------------------------
     def submit(self, move) -> Result:

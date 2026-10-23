@@ -1,0 +1,18 @@
+# ChessArena 配置（改完重启 serve 生效）
+
+server:
+  host: 127.0.0.1        # 想给全班访问就改 0.0.0.0（注意：单机，不做账号）
+  port: 8000
+
+game:
+  timeout: 3.0           # 每步总时长（秒，含全部重试）
+  max_retries: 3         # 一步最多被拒几次
+  on_retry_exhausted: forfeit   # forfeit 判负 / random 替走一步
+  on_timeout: forfeit
+
+league:
+  rounds: 2              # 每对下 2*rounds 局（黑白各一）
+  openings: 8            # 随机开局步数，防止所有对局一模一样
+  max_concurrent: 4      # 并发进程数
+
+builtin: [random, greedy, minimax2, minimax3, stockfish]
