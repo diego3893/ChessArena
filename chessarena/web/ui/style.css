@@ -13,6 +13,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -33,6 +34,7 @@ body {
 /* ---------- 顶栏 ---------- */
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 18px;
   padding: 10px 14px;
@@ -53,7 +55,7 @@ body {
 .brand .logo { font-size: 22px; color: var(--accent); }
 .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; }
 
-.modes { display: flex; gap: 6px; margin-left: auto; }
+.modes { display: flex; gap: 6px; }
 
 .players-pick {
   display: flex;
@@ -102,6 +104,36 @@ body {
   transition: background .15s, border-color .15s, transform .05s;
 }
 
+button, select, input { font: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
+.conn { margin-left: auto; }
+.replay-source { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.source-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.source-row + .source-row { margin-top: 10px; }
+.source-row select { min-width: 0; max-width: 100%; }
+#replay-record { flex: 1; }
+#replay-game { max-width: min(440px, 100%); }
+.replay-source button, .file-pick, .replay-controls button, .replay-source select, .replay-controls select {
+  background: var(--bg-soft); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+}
+.file-pick { cursor: pointer; position: relative; }
+.file-pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.file-pick:focus-within, .replay-source button:hover, .replay-controls button:hover { border-color: var(--accent); }
+.replay-error { color: var(--bad); margin-top: 8px; overflow-wrap: anywhere; }
+#replay-info { overflow-wrap: anywhere; font-size: 12px; }
+.replay-empty { color: var(--muted); text-align: center; }
+.replay-controls { width: min(74vh, 100%); padding: 10px 12px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); }
+.transport { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+#replay-play { min-width: 72px; background: color-mix(in srgb, var(--accent) 20%, var(--bg-soft)); }
+.timeline { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.timeline input { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.timeline output { font-variant-numeric: tabular-nums; min-width: 66px; text-align: right; }
+.moves button.san { border: 0; background: transparent; color: var(--text); font-size: inherit; text-align: left; cursor: pointer; border-radius: 4px; padding: 2px 4px; }
+.moves button.san:hover { background: var(--line); }
+.moves .san.future { color: var(--muted); }
+.moves .san.last { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+
 .modes button:hover, .controls button:hover, .speed button:hover, .dialog button:hover {
   border-color: var(--accent);
 }
@@ -144,7 +176,7 @@ body {
 /* chessground 棋子阴影微调 */
 .cg-wrap piece { will-change: transform; }
 
-.turnbar { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.turnbar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; font-size: 13px; }
 .dot {
   width: 10px; height: 10px; border-radius: 50%;
   background: #fff; border: 1px solid #000;
@@ -175,6 +207,7 @@ body {
 .side-dot.white { background: #fff; }
 .side-dot.black { background: #1b1b1b; border-color: #777; }
 .pname { font-weight: 500; }
+.pname { overflow-wrap: anywhere; min-width: 0; }
 .badge {
   margin-left: auto; font-size: 11px; color: var(--muted);
   border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
@@ -241,4 +274,15 @@ body {
   .layout { grid-template-columns: 1fr; }
   .board-shell { width: min(88vw, 560px); }
   .moves { max-height: 26vh; }
+  .replay-controls { width: min(88vw, 560px); }
+  .players-pick { margin-left: 0; flex-wrap: wrap; }
+}
+@media (max-width: 480px) {
+  body { padding: 10px; }
+  .topbar { gap: 10px; }
+  .brand small { display: none; }
+  .board-shell, .replay-controls { width: 100%; }
+  .source-row { gap: 8px; }
+  #replay-record { flex-basis: 100%; }
+  .speed { flex-wrap: wrap; }
 }

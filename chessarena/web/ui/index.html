@@ -12,7 +12,11 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo">♞</span>ChessArena<small id="version"></small></div>
-    <div class="players-pick">
+    <nav class="modes" aria-label="页面模式">
+      <button id="mode-live" class="active" aria-pressed="true">实时对战</button>
+      <button id="mode-replay" aria-pressed="false">播放器</button>
+    </nav>
+    <div class="players-pick" id="live-picks">
       <label>白方 <select id="pick-white" title="白方由谁走"></select></label>
       <span class="vs">vs</span>
       <label>黑方 <select id="pick-black" title="黑方由谁走"></select></label>
@@ -20,6 +24,21 @@
     </div>
     <div class="conn" id="conn">连接中…</div>
   </header>
+
+  <section class="replay-source" id="replay-source" hidden aria-label="选择对局记录">
+    <div class="source-row">
+      <label class="file-pick">打开本地PGN<input id="replay-file" type="file" accept=".pgn,.txt" aria-label="打开本地PGN"></label>
+      <span class="muted">或</span>
+      <select id="replay-record" aria-label="服务器对局记录"><option value="">选择runs/或results/中的PGN</option></select>
+      <button id="replay-refresh" title="刷新记录列表">刷新</button>
+      <button id="replay-open">载入记录</button>
+    </div>
+    <div class="source-row">
+      <label for="replay-game">盘次</label><select id="replay-game" disabled><option>尚未载入</option></select>
+      <span id="replay-info" class="muted" role="status">选择PGN后开始回放。实时对局会继续运行。</span>
+    </div>
+    <div id="replay-error" class="replay-error" role="alert" hidden></div>
+  </section>
 
   <main class="layout">
     <section class="board-area">
@@ -29,6 +48,18 @@
         <span id="turn-text">白方走棋</span>
         <span class="muted" id="ply-text">第 0 步</span>
         <span class="muted" id="limit-text">每步限时 3.0s</span>
+      </div>
+      <div class="replay-empty" id="replay-empty" hidden>打开一份PGN，在棋盘上重播对局</div>
+      <div class="replay-controls" id="replay-controls" hidden>
+        <div class="transport">
+          <button id="replay-first" title="初始局面">⏮</button>
+          <button id="replay-prev" title="上一步">◀</button>
+          <button id="replay-play">播放</button>
+          <button id="replay-next" title="下一步">▶</button>
+          <button id="replay-last" title="最终局面">⏭</button>
+          <select id="replay-speed" aria-label="回放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+        </div>
+        <div class="timeline"><input id="replay-seek" type="range" min="0" max="0" value="0" aria-label="回放进度"><output id="replay-position">0 / 0</output></div>
       </div>
     </section>
 
@@ -57,9 +88,9 @@
   </main>
 
   <footer class="controls">
-    <button id="btn-new">新对局</button>
-    <button id="btn-undo">悔棋</button>
-    <button id="btn-resign">认输</button>
+    <button id="btn-new" data-live>新对局</button>
+    <button id="btn-undo" data-live>悔棋</button>
+    <button id="btn-resign" data-live>认输</button>
     <button id="btn-flip">翻转</button>
     <button id="btn-pgn">导出 PGN</button>
     <button id="btn-fen">复制 FEN</button>
@@ -93,6 +124,7 @@
       <div class="dialog-title" id="over-title">对局结束</div>
       <div class="dialog-sub" id="over-sub"></div>
       <button id="btn-again">再来一局</button>
+      <button id="btn-over-replay">打开播放器</button>
     </div>
   </div>
 
