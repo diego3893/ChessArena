@@ -208,6 +208,8 @@ python -m chessarena test agents/my.py --vs agents/li.py --games 10
 
 ## 四、给 AI 用的 API 手册
 
+> 这一节是速查；**发给学生的版本是 [《chessarena-学生API.md》](chessarena-学生API.md)**（只含学生会用到的接口 + 常见错误对照）。
+
 ### `State`：你能看到的世界（只读）
 
 ```python
@@ -315,8 +317,8 @@ class MyAgent(Agent):
         return self.search(state, depth=3)   # 扣模式：只返回着法，平台替你 submit
 ```
 
-> 想自己落子（层 2）就写 `self.game.submit(best)`，**然后不要再 return 这个着法**——否则一步会走两次。
-> 两种模式要么全程层 1，要么全程层 2。
+> 想自己落子（层 2）就写 `self.game.submit(best)`。平台会检测到"这一步你已自己落过"，你返回的着法会被忽略，不会走两步。
+> 不过**两种写法别混着用**——读代码的人很难判断这一步到底是谁落的。
 
 **跨进程（AI 用别的语言、或在 GPU 机器上）**：方法名完全一样。
 

@@ -1,6 +1,7 @@
 # ChessArena 完整 API 总表 v1
 
 > 全部对外接口的单一事实来源（single source of truth）。本文档与《chessarena-API规格.md》冲突时，以本文档为准。
+> **学生只需看 [《chessarena-学生API.md》](chessarena-学生API.md)**——那是本文档里学生用得到的那部分，加常见错误。
 > 约定：**R** = 只读，**W** = 写入真相源，**B** = 阻塞调用。
 
 ## 0. 对象索引

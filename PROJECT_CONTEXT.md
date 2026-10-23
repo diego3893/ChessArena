@@ -41,13 +41,13 @@
 
 **Confirmed（2026-10-23 10:0x，阶段 5、6 完成，仅剩浏览器人工验收）：**
 
-- **可运行**：`chessarena/` 34 个模块 + 前端 700 行；平台共 43 个 `.py` / 4,811 行（含 examples/assignments/tests）；`tests/` **100 个用例全绿**（Stockfish 引擎用例在沙箱内 skip）。
+- **可运行**：`chessarena/` 34 个模块 + 前端 700 行；平台共 43 个 `.py` / 4,811 行（含 examples/assignments/tests）；`tests/` **110 个用例全绿**（Stockfish 引擎用例在沙箱内 skip）。
 - **交付面**：`play` / `serve`（含模型下拉）/ `test`（自测）/ `league`（ELO+HTML）/ `replay`（终端回放）；五档 AI + 学生 `agents/` + `agents.json` 的外部 UCI/HTTP 对手。
 - **内核**：五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN + `history_san`/`captured`；`TransientError`（外部对手可重试）。
 - **服务**：`web/session.py`（驱动线程 + 广播 + 暂停/单步/调速/悔棋/认输/换人 + 心跳 + 自愈）、`web/server.py`（9 个 HTTP 端点 + `WS /ws` + 静态页）、`Client`、录像 JSONL。
 - **前端**：`web/ui/*` 零构建；白方/黑方模型下拉（人类 / L1–L5 / `agents/*.py` / `uci:…` / `http:…`）+ 开局；落子/升变/记谱/吃子/悔棋/认输/翻转/导出 PGN/调速与暂停单步/自动校准。
 - **联赛**：`chessarena/league.py` —— 单循环、随机开局、`max_concurrent` 多进程（=1 时本进程）、ELO（400 分制 K=32）、非法率、平均每步、HTML 报告 + 每局 PGN、断点续跑。
-- **教学包**：`agents/examples/`（random / minimax αβ / HTTP client 三个样例）、`assignments/`（eval & minimax 骨架 + `grade.py`）、`config.yaml`、`start.bat`、`requirements.txt`、`README.md`。
+- **教学包**：`agents/examples/`（random / minimax αβ / HTTP client 三个样例）、`assignments/`（eval & minimax 骨架 + `grade.py`）、`config.yaml`、`start.bat`、`requirements.txt`、`README.md`。\n- **文档**：README（入门）、**《chessarena-学生API.md》（学生只看这份）**、API 总表（SSOT）、API 规格、使用说明书；学生文档有 9 个"文档契约"用例防漂移。
 - **L5 强度**：默认 `UCI_Elo=2600` + 每步 1.0s（`config.yaml` 的 `stockfish.elo/movetime` 或环境变量可调）。实测 2600 对 L4 **42 半步将杀**，2200 对随机 46 半步将杀。
 - **实测**：联赛 random+greedy 2 局 0.1s、报告与 PGN 正常；`grade.py` 4 局 0.5s；100 用例 12.1s。
 - **版本控制**：`a7da3df` → `8eeaab2` → `b4a56b5` → `3a5e2c9` → `661522a` → `4effeef` → `e6a70b0` → `2f3fc7f` → `4666e4e`；本轮（L5 调强）待提交。
@@ -106,6 +106,7 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 
 | File | Purpose | Notes |
 |---|---|---|
+| `docs/chessarena-学生API.md` | **学生只看这份**：Agent/State/Result/Game/Client + 常见错误对照 | 与代码有 10 个"文档契约"用例盯着 |
 | `docs/chessarena-API总表.md` | **接口单一事实来源**（§0–§16） | 实现照此写；与其他文档冲突时以它为准（D010） |
 | `docs/chessarena-API规格.md` | 设计意图、返回码语义、重试规则 | 已与总表对齐 |
 | `docs/chessarena-使用说明书.md` | 产品形态、界面线框、五档难度、教学节奏 | 已与总表对齐（P003 关闭） |
@@ -134,6 +135,7 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 | `tests/test_league.py` | 6 个用例（ELO、编排、报告、续跑） | 报告含 ELO/非法率 |
 | `tests/test_external.py` | 6 个用例（agents.json、HTTP 对手、扫描） | 本地 HTTPServer 模拟 |
 | `tests/test_cli.py` | 7 个用例（play/league/test/replay/help） | 捕获 stdout |
+| `tests/test_docs_contract.py` | 10 个用例：文档成员存在 + 相对链接可达 | 防文档漂移 |
 | `tests/test_builtin.py` | 11 个用例（五档注册、Qxf7#、合法性、预算、Stockfish 冒烟） | 引擎用例在沙箱内 skip（P009） |
 | `vendor/chessground/` | 前端预构建产物（min.js 33,291 B + 3 CSS + LICENSE） | 页面经 `/vendor/...` 直接引 |
 | `thirdparty/stockfish/` | L5 引擎（已解压，Stockfish 19，103 MB exe） | 已 gitignore，按需重新解压 |
@@ -662,3 +664,4 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 09:2x — 用户要求"UI 里选模型"：顶部加白方/黑方两个下拉（人类 / L1–L5 / 未来 agents）+ 开局按钮，改选即重开；新增 `GET /players` 与快照 `players` 字段；`Session.control("new")` 先建后换（非法写法 400 且原局不变），`resolve_player` 把 KeyError 转 `AgentLoadError`；新增 5 个 players 用例，75 个测试全绿。`
 `2026-10-23 10:5x — 用户要求 L5 调强：默认 `UCI_Elo` 1600→2600、每步 0.6→1.0s，并接上 `config.yaml` 的 `stockfish: {elo,movetime,path}`（环境变量优先）。实测 2600 对 L4 42 半步将杀、2200 对随机 46 半步将杀；E010 记录；100 测试全绿。`
 `2026-10-23 10:0x — 阶段 5、6 完成：`league.py`（编排/进程池/ELO/非法率/HTML+PGN/续跑）、`core/external.py`（agents.json 的 UCI/HTTP 对手 + TransientError）、CLI `test`/`league`/`replay`、`agents/examples` 三样例、`assignments` 骨架 + `grade.py`、`config.yaml`/`start.bat`/`requirements.txt`/`README.md`；`serve` 支持 `--timeout/--max-retries` 并从 config 取 host/port；97 个测试全绿；补 D023（联赛并发模型）、D024（EngineError vs TransientError）、E008/E009。`
+`2026-10-23 11:2x — 文档交付：重写 README（快速开始 / 页面模型下拉 / 5 分钟写 AI / 命令 / 联赛 / 配置 / FAQ / 许可）；新增《学生 API》（只含学生用得到的 Agent·State·Result·Game·Client + 常见错误对照，链到总表）；新增 9 个“文档契约”用例（文档里写的成员必须真实存在），109 测试全绿。`
