@@ -7,10 +7,14 @@
 import contextlib
 import contextvars
 import io
+import math
 import random
 import threading
 import time
 from datetime import datetime
+from dataclasses import dataclass, field
+from functools import wraps
+from uuid import uuid4
 
 import chess
 import chess.pgn
@@ -34,6 +38,26 @@ START_FEN = chess.STARTING_FEN
 #: 当前"谁在落子"的上下文。平台在驱动某一方时设置它，``submit`` 据此判断是否 ``-3``。
 _side_ctx = contextvars.ContextVar("chessarena_side", default=None)
 _request_ctx = contextvars.ContextVar("chessarena_request", default=None)
+
+
+@dataclass
+class _TurnRequest:
+    game: object
+    generation: int
+    deadline: float
+    retry_budget: int
+    failures: int = 0
+    accepted: Result | None = None
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    done: threading.Event = field(default_factory=threading.Event)
+
+
+def _locked(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
 
 #: 对外支持的事件名（《API总表》§8）
 EVENTS = ("move", "illegal", "opponent_move", "game_over", "timeout", "retry")
@@ -80,7 +104,7 @@ class Game:
     ):
         start = fen or START_FEN
         try:
-            self._board = chess.Board(start)
+            self._board = self._validated_board(start)
         except ValueError as exc:
             raise ValueError("起始 FEN 不合法：%r" % (start,)) from exc
 
@@ -92,6 +116,10 @@ class Game:
         self.record = record
         self.timeout = float(timeout)
         self.max_retries = int(max_retries)
+        if not math.isfinite(self.timeout) or self.timeout <= 0:
+            raise ValueError("timeout须为有限正数")
+        if self.max_retries < 0:
+            raise ValueError("max_retries不能为负数")
         if on_retry_exhausted not in ("forfeit", "random"):
             raise ValueError("on_retry_exhausted 只能是 forfeit / random")
         if on_timeout not in ("forfeit", "random"):
@@ -110,6 +138,7 @@ class Game:
         self.rejected: list[dict] = []  # 被拒记录，联赛"非法率"用
         self._rng = random.Random(seed)
         self._lock = threading.RLock()
+        self._step_lock = threading.Lock()
         terminal = self._terminal()
         if terminal is not None:
             self._over_reason, self._result = terminal
@@ -143,25 +172,40 @@ class Game:
         def submit(move, *, strict=False):
             with self._lock:
                 request = _request_ctx.get()
-                if request is not None and (request[0] is not self or
-                        request[1] != self._generation or request[3].is_set() or
-                        time.monotonic() >= request[2]):
+                if request is not None and self._stale_request(request):
                     if strict:
                         raise NotYourTurnError("该次思考已结束或超时")
                     return Result(RC.NOT_YOUR_TURN, "该次思考已结束或超时", None)
                 with self.acting_as(side):
-                    return self.submit(move, strict=strict)
+                    result = self.submit(move, strict=strict)
+                if request is not None and not result.ok and result.code in (RC.ILLEGAL_MOVE, RC.BAD_FORMAT):
+                    request.failures += 1
+                    if request.failures > request.retry_budget:
+                        request.cancelled.set()
+                        request.done.set()
+                return result
 
         def resign():
             with self._lock:
                 request = _request_ctx.get()
-                if request is not None and (request[0] is not self or
-                        request[1] != self._generation or request[3].is_set() or
-                        time.monotonic() >= request[2]):
+                if request is not None and self._stale_request(request):
                     return Result(RC.NOT_YOUR_TURN, "该次思考已结束或超时", None)
                 return self.resign(side)
 
         return Player(side, lambda: self.state, submit, resign, lambda: self.clock(side))
+
+    def _stale_request(self, request):
+        return (request.game is not self or request.generation != self._generation or
+                request.cancelled.is_set() or time.monotonic() >= request.deadline)
+
+    @staticmethod
+    def _validated_board(fen):
+        if not isinstance(fen, str):
+            raise ValueError("FEN须为字符串")
+        board = chess.Board(fen)
+        if not board.is_valid():
+            raise ValueError("FEN局面无效：%s" % fen)
+        return board
 
     @property
     def turn(self) -> str:
@@ -247,28 +291,39 @@ class Game:
         self._deadline = None
 
         result = Result(RC.OK, "落子成功：%s" % played, played)
+        request = _request_ctx.get()
+        if request is not None and request.game is self:
+            request.accepted = result
         self._emit("move", played, result)
         other = self.black if mover == "w" else self.white
         if other is not None:
-            other.on_opponent_move(played)
+            self._notify(other, "on_opponent_move", played)
 
         terminal = self._terminal()
         if terminal is not None:
             reason, outcome = terminal
             self._finish(outcome, reason)
+        if request is not None and request.game is self:
+            request.done.set()
         return result
 
+    @_locked
     def resign(self, side=None) -> Result:
         """认输；缺省为当前走子方。"""
         if self.over:
             return Result(RC.GAME_OVER, "对局已结束", None)
         side = side or _side_ctx.get() or self.turn
+        if side not in ("w", "b"):
+            return Result(RC.BAD_FORMAT, "side须为w或b", None)
         loser_is_white = side == "w"
         self._finish("0-1" if loser_is_white else "1-0", "resign")
         return Result(RC.OK, "%s认输" % _SIDE_TEXT[side], None)
 
+    @_locked
     def undo(self, n=1) -> bool:
         """回退 ``n`` 个半步；成功返回 True。"""
+        if not isinstance(n, int) or n < 1 or not self._history:
+            return False
         if self.over:
             self._result = None
             self._over_reason = None
@@ -279,15 +334,19 @@ class Game:
             done += 1
         if done:
             self._last_error = None
+            self._deadline = None
             self._generation += 1
         return done > 0
 
+    @_locked
     def reset(self, fen=None):
         """清空历史，回到指定局面。"""
         start = fen or self.start_fen
-        self._board = chess.Board(start)
+        board = self._validated_board(start)
+        self._board = board
         self.start_fen = start
         self._history.clear()
+        self.rejected.clear()
         self._last_error = None
         self._result = None
         self._over_reason = None
@@ -302,18 +361,21 @@ class Game:
     # ------------------------------------------------------------------
     def step(self) -> Result:
         """让当前走子方走一步（观战"单步"用）。"""
-        if self.over:
-            return Result(RC.GAME_OVER, "对局已结束（%s）" % self._reason_text(), None)
-        side = self.turn
-        agent = self.white if side == "w" else self.black
-        if agent is None:
-            return Result(RC.NOT_YOUR_TURN, "%s没有绑定 AI" % _SIDE_TEXT[side], None)
-        return self._play_turn(side, agent)
+        with self._step_lock:
+            if self.over:
+                return Result(RC.GAME_OVER, "对局已结束（%s）" % self._reason_text(), None)
+            side = self.turn
+            agent = self.white if side == "w" else self.black
+            if agent is None or getattr(agent, "is_api", False):
+                return Result(RC.NOT_YOUR_TURN, "%s等待外部提交" % _SIDE_TEXT[side], None)
+            return self._play_turn(side, agent)
 
     def run_to_end(self, *, max_plies=1000) -> str | None:
         """自动驱动双方到终局，返回 ``result``。"""
         while not self.over and self.ply < max_plies:
-            self.step()
+            result = self.step()
+            if result.code == RC.NOT_YOUR_TURN:
+                break
         return self.result
 
     def wait_my_turn(self, *, timeout=10.0) -> bool:
@@ -356,6 +418,7 @@ class Game:
     # ------------------------------------------------------------------
     # 导出
     # ------------------------------------------------------------------
+    @_locked
     def pgn(self) -> str:
         """导出 PGN（含双方名字与结果）。"""
         game = chess.pgn.Game()
@@ -376,6 +439,7 @@ class Game:
         print(game, file=out)
         return out.getvalue()
 
+    @_locked
     def to_json(self) -> dict:
         state = self.state
         payload = state.to_json()
@@ -439,54 +503,59 @@ class Game:
         self._deadline = deadline
         attempts = 0
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return self._dispose(side, "timeout")
-            generation = self._generation
+            with self._lock:
+                if self.over:
+                    return Result(RC.GAME_OVER, "对局已结束", None)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return self._dispose(side, "timeout")
+                request = _TurnRequest(self, self._generation, deadline,
+                                       self.max_retries-attempts)
+            error = None
+            move = None
             try:
-                move = self._ask(agent, side, remaining)
-            except ChessArenaTimeout:
-                return self._dispose(side, "timeout")
-            except TransientError as exc:
-                # 外部对手这一次失败（HTTP 5xx / 引擎退出）：计入重试，别直接判负
-                attempts += 1
-                self._log("%s 外部对手本步失败（第 %d 次）：%r"
-                          % (_SIDE_TEXT[side], attempts, exc))
-                self._emit("retry", side, attempts, Result(RC.ILLEGAL_MOVE, str(exc), None))
-                if attempts > self.max_retries:
-                    return self._dispose(side, "retry_exhausted", detail=str(exc))
-                continue
+                move = self._ask(agent, side, remaining, request)
             except Exception as exc:
-                self._log("%s 思考时抛异常：%r" % (_SIDE_TEXT[side], exc))
-                return self._dispose(side, "error", detail=repr(exc))
+                error = exc
 
-            if self._generation != generation:
-                # 层 2：AI 自己在 choose_move 里 submit 过了
-                return Result(RC.OK, "AI 已自行落子：%s" % (self._history[-1],), self._history[-1])
-            if self.over:
-                return Result(RC.GAME_OVER, "对局已结束", None)
-            if move is None:
-                return self._dispose(side, "forfeit")
+            with self._lock:
+                # 已接受的动作不因选手返回慢或后续异常而被重复执行/误判负。
+                if request.accepted is not None:
+                    return request.accepted
+                if self.over:
+                    return Result(RC.GAME_OVER, "对局已结束", None)
+                if request.generation != self._generation:
+                    return Result(RC.NOT_YOUR_TURN, "思考期间对局已变更", None)
+                if request.failures > request.retry_budget:
+                    return self._dispose(side, "retry_exhausted")
+                if time.monotonic() >= deadline:
+                    return self._dispose(side, "timeout")
+                if isinstance(error, ChessArenaTimeout):
+                    return self._dispose(side, "timeout")
+                if isinstance(error, TransientError):
+                    attempts += request.failures+1
+                    self._emit("retry", side, attempts, Result(RC.ILLEGAL_MOVE, str(error), None))
+                    if attempts > self.max_retries:
+                        return self._dispose(side, "retry_exhausted", detail=str(error))
+                    continue
+                if error is not None:
+                    self._log("%s思考时抛异常：%r" % (_SIDE_TEXT[side], error))
+                    return self._dispose(side, "error", detail=repr(error))
+                if move is None:
+                    return self._dispose(side, "forfeit")
+                result = move if isinstance(move, Result) and not move.ok else self.submit(move)
+                if result.ok or result.code == RC.GAME_OVER:
+                    return result
+                if getattr(agent, "is_human", False):
+                    continue
+                attempts += max(1, request.failures)
+                self._emit("retry", side, attempts, result)
+                if attempts > self.max_retries:
+                    return self._dispose(side, "retry_exhausted")
 
-            result = move if isinstance(move, Result) and not move.ok else self.submit(move)
-            if result.ok:
-                return result
-            if result.code == RC.GAME_OVER:
-                return result
-            if getattr(agent, "is_human", False):
-                # 人类手滑不算"尝试次数"，只受时钟限制
-                continue
-            attempts += 1
-            self._emit("retry", side, attempts, result)
-            if attempts > self.max_retries:
-                self._log("%s 连续 %d 次被拒，触发处置" % (_SIDE_TEXT[side], attempts))
-                return self._dispose(side, "retry_exhausted")
-            continue
-
-    def _ask(self, agent, side, seconds):
-        """向 agent 要一步，带硬超时（内置档位走快路径）。"""
+    def _ask(self, agent, side, seconds, request):
+        """等待选手返回或已接受的主动提交；取消过期请求。"""
         state = self.state
-        request = (self, self._generation, time.monotonic()+seconds, threading.Event())
         if getattr(agent, "fast_local", False):
             token = _side_ctx.set(side)
             request_token = _request_ctx.set(request)
@@ -494,7 +563,7 @@ class Game:
             try:
                 move = agent.choose_move(state)
             finally:
-                request[3].set()
+                request.cancelled.set()
                 _request_ctx.reset(request_token)
                 _side_ctx.reset(token)
             if time.monotonic() - started > seconds:
@@ -509,15 +578,17 @@ class Game:
             _request_ctx.set(request)
             try:
                 box["move"] = agent.choose_move(state)
-            except BaseException as exc:  # 学生代码的异常要带回主线程
-                box["error"] = exc
+            except BaseException as exc:
+                box["error"] = exc if isinstance(exc, Exception) else RuntimeError(repr(exc))
+            finally:
+                request.done.set()
 
         thread = threading.Thread(target=ctx.run, args=(run,), daemon=True, name="chessarena-agent")
         thread.start()
-        thread.join(seconds)
-        request[3].set()
-        if thread.is_alive():
-            raise ChessArenaTimeout("思考超时（%.2fs 未返回）" % (seconds,))
+        finished = request.done.wait(seconds)
+        request.cancelled.set()
+        if not finished and request.accepted is None:
+            raise ChessArenaTimeout("思考超时（%.2fs未返回）" % seconds)
         if "error" in box:
             raise box["error"]
         return box.get("move")
@@ -546,14 +617,27 @@ class Game:
         self._finish("0-1" if side == "w" else "1-0", reason)
         return Result(RC.GAME_OVER, text, None)
 
+    def _notify(self, agent, method, *args):
+        try:
+            getattr(agent, method)(*args)
+        except (Exception, SystemExit) as exc:
+            self._log("%s回调异常：%r" % (method, exc))
+
+    @_locked
     def _finish(self, outcome, reason):
+        if self.over:
+            return
         self._result = outcome
         self._over_reason = reason
+        self._generation += 1
         self._deadline = None
         self._emit("game_over", outcome, reason)
         for agent in (self.white, self.black):
             if agent is not None:
-                agent.on_game_end(outcome)
+                self._notify(agent, "on_game_end", outcome)
+        request = _request_ctx.get()
+        if request is not None and request.game is self:
+            request.done.set()
 
     def _terminal(self):
         """检查终局；返回 ``(reason, result)`` 或 ``None``。"""
@@ -577,7 +661,7 @@ class Game:
         self._last_error = reason
         result = Result(code, reason, None)
         if code in (RC.ILLEGAL_MOVE, RC.BAD_FORMAT):
-            self.rejected.append({"ply": self.ply, "code": code, "reason": reason})
+            self.rejected.append({"ply": self.ply, "side": self.turn, "code": code, "reason": reason})
         self._emit("illegal", move, result)
         return result
 
@@ -608,7 +692,7 @@ class Game:
 
     @staticmethod
     def _make_id():
-        return datetime.now().strftime("%Y%m%d-%H%M%S-") + "%04x" % (int(time.time() * 1000) % 0x10000)
+        return datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid4().hex[:12]
 
 
 def reasoning_cn(reason):

@@ -121,13 +121,13 @@ def cmd_league(args):
     print()
     print("%-24s %6s %5s %4s %4s %4s %8s" % ("AI", "ELO", "场次", "胜", "和", "负", "得分率"))
     for row in result.rows:
-        print("%-24s %6.0f %5d %4d %4d %4d %7.1f%%  非法率 %.2f%%  平均 %.3fs/步"
+        print("%-24s %6.0f %5d %4d %4d %4d %7.1f%%  非法率 %.2f%%  平均 %.3fs/步  未完成 %d"
               % (row["name"], row["elo"], row["games"], row["wins"], row["draws"],
-                 row["losses"], row["win_rate"], row["illegal_rate"], row["avg_move_seconds"]))
+                 row["losses"], row["win_rate"], row["illegal_rate"], row["avg_move_seconds"], row["unfinished"]))
     print()
     print("报告：%s" % (result.report_path,))
     print("PGN ：%s" % (result.pgn_dir,))
-    return 0
+    return 3 if any(row["unfinished"] for row in result.rows) else 0
 
 
 def _parse_players(text):
@@ -151,17 +151,14 @@ def _run_for_test(agent, opponent, *, seed, timeout, max_plies, swap, config="co
         game = arena.new_game(white=white, black=black)
         mine = "b" if swap else "w"
         move_times = []
-        last = time.monotonic()
-
-        def on_move(move, result):
-            nonlocal last
-            now = time.monotonic()
-            move_times.append(now - last)
-            last = now
-
-        game.on("move", on_move)
-        game.run_to_end(max_plies=max_plies)
-        return game.result or "*", mine, move_times
+        while not game.over and game.ply < max_plies:
+            side = game.turn
+            turn_started = time.monotonic()
+            outcome = game.step()
+            move_times.append((side, time.monotonic()-turn_started))
+            if outcome.code == -3:
+                break
+        return game.result or "*", mine, move_times, game.ply
 
     finally:
         arena.close()
@@ -171,22 +168,23 @@ def cmd_test(args):
     spec = args.agent
     opponent = args.opponent
     games = max(1, args.games)
-    wins = draws = losses = 0
+    wins = draws = losses = unfinished = 0
     times = []
     rejected = 0
     plies = 0
     started = time.monotonic()
 
     for i in range(games):
-        result, mine, move_times = _run_for_test(
+        result, mine, move_times, game_plies = _run_for_test(
             spec, opponent, seed=args.seed + i, timeout=args.timeout,
             max_plies=args.max_plies, swap=(i % 2 == 1), config=args.config,
         )
-        # 只取被测方的步时（白先：索引 0,2,4…；黑：1,3,5…）
-        mine_times = move_times[0::2] if mine == "w" else move_times[1::2]
+        mine_times = [seconds for side, seconds in move_times if side == mine]
         times.extend(mine_times)
-        plies += len(move_times)
-        if result == "1/2-1/2":
+        plies += game_plies
+        if result == "*":
+            unfinished += 1
+        elif result == "1/2-1/2":
             draws += 1
         elif (result == "1-0" and mine == "w") or (result == "0-1" and mine == "b"):
             wins += 1
@@ -200,7 +198,9 @@ def cmd_test(args):
           % (wins, draws, losses, 100.0 * wins / total, avg, longest,
              time.monotonic() - started))
     print("对被测方：%s vs %s（%d 局，%d 半步）" % (spec, opponent, games, plies))
-    return 0
+    if unfinished:
+        print("未完成 %d 局，不计入胜和负" % unfinished)
+    return 3 if unfinished else 0
 
 
 def cmd_replay(args):

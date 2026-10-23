@@ -41,7 +41,18 @@ def play_game(job: dict) -> dict:
             move = rng.choice(moves)
             if game.submit(move).ok:
                 opening.append(move)
-        game.run_to_end(max_plies=job.get("max_plies", DEFAULT_MAX_PLIES))
+        player_stats = {side: {"plies": 0, "rejected": 0, "seconds": 0.0}
+                        for side in ("w", "b")}
+        while not game.over and game.ply < job.get("max_plies", DEFAULT_MAX_PLIES):
+            side, before = game.turn, game.ply
+            turn_started = time.monotonic()
+            result = game.step()
+            player_stats[side]["seconds"] += time.monotonic()-turn_started
+            player_stats[side]["plies"] += game.ply-before
+            if result.code == -3:
+                break
+        for rejection in game.rejected:
+            player_stats[rejection["side"]]["rejected"] += 1
         seconds = time.monotonic() - started
         record = {
             "idx": job["idx"],
@@ -54,6 +65,7 @@ def play_game(job: dict) -> dict:
             "seconds": round(seconds, 3),
             "game_id": game.game_id,
             "opening": opening,
+            "player_stats": player_stats,
             "pgn": game.pgn(),
         }
         return record
@@ -76,15 +88,15 @@ def play_game(job: dict) -> dict:
 
 
 # ---------------------------------------------------------------- ELO
-def score_of(result: str, color: str) -> float:
+def score_of(result: str, color: str) -> float | None:
     """把 ``1-0`` / ``0-1`` / ``1/2-1/2`` 换成某一方的得分。"""
-    if result == "1/2-1/2" or result == "*":
+    if result == "1/2-1/2":
         return 0.5
     if result == "1-0":
         return 1.0 if color == "w" else 0.0
     if result == "0-1":
         return 0.0 if color == "w" else 1.0
-    return 0.5
+    return None
 
 
 def expected_score(rating: float, opponent: float) -> float:
@@ -100,6 +112,8 @@ def compute_ratings(records, *, start=1500.0, k=32.0):
         white, black = rec["white"], rec["black"]
         rw, rb = ratings[white], ratings[black]
         score_w = score_of(rec["result"], "w")
+        if score_w is None:
+            continue
         expected_w = expected_score(rw, rb)
         ratings[white] = rw + k * (score_w - expected_w)
         ratings[black] = rb + k * ((1.0 - score_w) - (1.0 - expected_w))
@@ -113,23 +127,26 @@ def summarize(records, ratings):
         for side, color in ((rec["white"], "w"), (rec["black"], "b")):
             row = table.setdefault(side, {
                 "name": side, "games": 0, "wins": 0, "draws": 0, "losses": 0,
-                "score": 0.0, "plies": 0, "rejected": 0, "seconds": 0.0,
+                "score": 0.0, "plies": 0, "rejected": 0, "seconds": 0.0, "unfinished": 0,
             })
             row["games"] += 1
             score = score_of(rec["result"], color)
-            row["score"] += score
-            if score == 1.0:
+            if score is None:
+                row["unfinished"] += 1
+            elif score == 1.0:
                 row["wins"] += 1
             elif score == 0.5:
                 row["draws"] += 1
             else:
                 row["losses"] += 1
-            row["plies"] += rec["plies"]
-            row["rejected"] += rec["rejected"]
-            row["seconds"] += rec["seconds"]
+            row["score"] += score if score is not None else 0.0
+            stats = rec.get("player_stats", {}).get(color, {})
+            row["plies"] += stats.get("plies", 0)
+            row["rejected"] += stats.get("rejected", 0)
+            row["seconds"] += stats.get("seconds", 0.0)
     rows = []
     for name, row in table.items():
-        games = max(1, row["games"])
+        games = max(1, row["games"]-row["unfinished"])
         moves = max(1, row["plies"] + row["rejected"])
         rows.append({
             **row,
@@ -210,7 +227,10 @@ class League:
                     rec = json.loads(line)
                 except ValueError:
                     continue
-                done[rec["idx"]] = rec
+                if isinstance(rec, dict) and "idx" in rec and score_of(rec.get("result"), "w") is not None:
+                    done[rec["idx"]] = rec
+        if not resume:
+            log_path.write_text("", encoding="utf-8")
         pending = [job for job in jobs if job["idx"] not in done]
         if progress:
             progress("共 %d 局，已完成 %d，待跑 %d" % (len(jobs), len(done), len(pending)))
@@ -283,13 +303,13 @@ a{color:#7aa2f7;text-decoration:none} a:hover{text-decoration:underline}
 """).substitute(seed=self.seed, players=len(self.players),
                 games=len(records), when=time.strftime("%Y-%m-%d %H:%M"))
         table = ["<table><tr><th>#</th><th>AI</th><th>ELO</th><th>场次</th><th>胜</th><th>和</th><th>负</th>"
-                 "<th>得分率</th><th>非法率</th><th>平均每步</th></tr>"]
+                 "<th>未完成</th><th>得分率</th><th>非法率</th><th>平均每步</th></tr>"]
         for pos, row in enumerate(rows, 1):
             table.append(
                 "<tr><td>%d</td><td>%s</td><td class='badge'>%.0f</td><td>%d</td>"
-                "<td>%d</td><td>%d</td><td>%d</td><td>%.1f%%</td><td>%.2f%%</td><td>%.3fs</td></tr>"
+                "<td>%d</td><td>%d</td><td>%d</td><td>%d</td><td>%.1f%%</td><td>%.2f%%</td><td>%.3fs</td></tr>"
                 % (pos, row["name"], row["elo"], row["games"], row["wins"],
-                   row["draws"], row["losses"], row["win_rate"], row["illegal_rate"],
+                   row["draws"], row["losses"], row["unfinished"], row["win_rate"], row["illegal_rate"],
                    row["avg_move_seconds"])
             )
         table.append("</table>")

@@ -25,7 +25,7 @@ def xy(sq: str) -> tuple[int, int]:
 
 def uci(x1: int, y1: int, x2: int, y2: int, promo: str = "") -> str:
     """坐标转着法串。``promo`` 只接受 ``"q"/"r"/"b"/"n"``（可省）。"""
-    if promo and (not isinstance(promo, str) or promo not in PROMO):
+    if promo and (not isinstance(promo, str) or len(promo) != 1 or promo not in PROMO):
         raise ValueError("升变子不合法：%r（只能是 q / r / b / n）" % (promo,))
     return square(x1, y1) + square(x2, y2) + promo
 
@@ -42,6 +42,8 @@ def parse_uci(move) -> tuple[str, str, str] | None:
     if move[0] not in FILES or move[1] not in RANKS:
         return None
     if move[2] not in FILES or move[3] not in RANKS:
+        return None
+    if move[:2] == move[2:4]:
         return None
     if len(move) == 5 and move[4] not in PROMO:
         return None

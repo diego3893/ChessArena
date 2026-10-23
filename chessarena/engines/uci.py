@@ -61,6 +61,7 @@ class UCIEngine:
             try:
                 self._engine.configure({name: value})
             except Exception as exc:
+                self.close()
                 raise EngineError("引擎选项 %s=%r 不被接受：%r" % (name, value, exc)) from exc
         return self
 

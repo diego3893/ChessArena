@@ -47,7 +47,7 @@ class TestCli(unittest.TestCase):
     def test_test_command(self):
         code, out = run("test", AGENT, "--vs", "builtin:random", "--games", "2",
                         "--max-plies", "80")
-        self.assertEqual(code, 0, msg=out)
+        self.assertIn(code, (0, 3), msg=out)
         self.assertIn("胜率", out)
         self.assertIn("平均每步", out)
 
@@ -55,7 +55,7 @@ class TestCli(unittest.TestCase):
         code, out = run("league", "--players", "random,greedy", "--rounds", "1",
                         "--openings", "2", "--concurrent", "1", "--max-plies", "120",
                         "--out", str(self.out))
-        self.assertEqual(code, 0, msg=out)
+        self.assertIn(code, (0, 3), msg=out)
         self.assertIn("ELO", out)
         report = self.out / "index.html"
         self.assertTrue(report.exists())

@@ -5,6 +5,7 @@
 """
 
 from pathlib import Path
+from copy import deepcopy
 
 from .agent import load_agent, resolve_player
 from .game import START_FEN, Game
@@ -24,7 +25,7 @@ DEFAULTS = {
 
 
 def _deep_merge(base, extra):
-    out = dict(base)
+    out = deepcopy(base)
     for key, value in (extra or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = _deep_merge(out[key], value)
@@ -37,11 +38,11 @@ def load_config(path="config.yaml"):
     """读 ``config.yaml``；文件不存在就用默认值。"""
     p = Path(path)
     if not p.exists():
-        return dict(DEFAULTS)
+        return deepcopy(DEFAULTS)
     try:
         import yaml
     except ImportError:  # pragma: no cover - yaml 是本项目的硬依赖之一
-        return dict(DEFAULTS)
+        return deepcopy(DEFAULTS)
     with p.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     return _deep_merge(DEFAULTS, data)
@@ -102,11 +103,12 @@ class Arena:
         game_id=None,
     ) -> Game:
         """开一局。``white`` / ``black`` 见《API总表》§10。"""
-        white_agent = (resolve_player(white, seed=self.seed, stockfish=self.stockfish)
-                       if white is not None else None)
-        black_agent = (resolve_player(black, seed=self.seed, stockfish=self.stockfish)
-                       if black is not None else None)
+        white_agent = black_agent = None
         try:
+            white_agent = (resolve_player(white, seed=self.seed, stockfish=self.stockfish)
+                           if white is not None else None)
+            black_agent = (resolve_player(black, seed=self.seed, stockfish=self.stockfish)
+                           if black is not None else None)
             game = Game(
                 white_agent,
                 black_agent,

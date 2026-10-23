@@ -13,7 +13,7 @@ class TestElo(unittest.TestCase):
         self.assertEqual(score_of("1-0", "w"), 1.0)
         self.assertEqual(score_of("1-0", "b"), 0.0)
         self.assertEqual(score_of("1/2-1/2", "w"), 0.5)
-        self.assertEqual(score_of("*", "b"), 0.5)
+        self.assertIsNone(score_of("*", "b"))
 
     def test_expected_score(self):
         self.assertAlmostEqual(expected_score(1500, 1500), 0.5)

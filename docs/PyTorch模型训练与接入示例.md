@@ -310,7 +310,7 @@ def predict(self, encoded):
     return self._model(**encoded)
 ```
 
-默认`device="cpu"`便于复现；GPU可由学生改为`cuda`并自行保证设备可用。`map_location="cpu"`先读取权重，适配器再移动模型，编码器也必须使用同一设备。CPU路径已在本项目验证，GPU与新环境需自行验证。
+默认`device="cpu"`便于复现；GPU可由学生改为`cuda`并自行保证设备可用。`map_location="cpu"`先读取权重，适配器再移动模型，编码器也必须使用同一设备。CPU路径及本机RTX4060的CUDA推理与反向传播已验证，其他设备和新环境需自行验证。
 
 `weights_only=True`是本示例采用的读取方式，不是平台规定的checkpoint结构。保存的`encoding/hidden/state_dict`键同样是学生示例约定，其他网络可以有不同格式。
 

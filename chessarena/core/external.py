@@ -86,6 +86,10 @@ class UciAgent(Agent):
             try:
                 engine.configure({key: value})
             except Exception as exc:
+                try:
+                    engine.quit()
+                except Exception:
+                    engine.close()
                 raise EngineError("引擎选项 %s=%r 不被接受：%r" % (key, value, exc)) from exc
         self._engine = engine
         return engine
@@ -97,6 +101,7 @@ class UciAgent(Agent):
         try:
             result = engine.play(board, limit)
         except chess.engine.EngineTerminatedError as exc:
+            self.close()
             raise TransientError("引擎退出：%r" % (exc,)) from exc
         return result.move.uci() if result.move else None
 
