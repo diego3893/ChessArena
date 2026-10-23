@@ -9,9 +9,9 @@ import sys
 import time
 from pathlib import Path
 
+from . import __version__
 from .core.arena import Arena
 from .core.game import REASON_TEXT
-
 
 def _utf8_stdout():
     """让中文输出不依赖控制台代码页（Windows 默认 gbk 会乱码）。"""
@@ -69,8 +69,33 @@ def cmd_play(args):
     return 0 if game.over else 3
 
 
+def cmd_serve(args):
+    from .core.arena import Arena
+    from .web.server import serve
+    from .web.session import Session
+
+    arena = Arena(live=True, seed=args.seed, config=args.config)
+    try:
+        session = Session(arena, args.white, args.black, fen=args.fen, speed=args.speed)
+    except Exception as exc:
+        arena.close()
+        print("启动失败：%s" % (exc,), file=sys.stderr)
+        return 1
+    print("ChessArena %s · 页面 http://%s:%d/ · 对手：白=%s 黑=%s"
+          % (__version__, args.host, args.port, args.white, args.black))
+    print("按 Ctrl+C 结束。")
+    try:
+        serve(session, host=args.host, port=args.port)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        session.stop()
+        arena.close()
+    return 0
+
+
 def cmd_stub(args):
-    print("命令 %r 尚未实现（阶段 1 只有 play / version）。见 PROJECT_CONTEXT.md §6。" % (args.command,))
+    print("命令 %r 尚未实现（当前有 play / serve / version）。见 PROJECT_CONTEXT.md §6。" % (args.command,))
     return 2
 
 
@@ -96,7 +121,18 @@ def build_parser():
     play.add_argument("--quiet", action="store_true", help="不打印 PGN 正文")
     play.set_defaults(func=cmd_play)
 
-    for name in ("serve", "league", "test", "replay"):
+    serve = sub.add_parser("serve", help="起网页/HTTP 服务")
+    serve.add_argument("--white", default="human", help="白方（默认人类）")
+    serve.add_argument("--black", default="builtin:greedy", help="黑方")
+    serve.add_argument("--fen", default=None)
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--speed", type=float, default=1.0, help="AI 落子速度倍率")
+    serve.add_argument("--seed", type=int, default=0)
+    serve.add_argument("--config", default="config.yaml")
+    serve.set_defaults(func=cmd_serve)
+
+    for name in ("league", "test", "replay"):
         stub = sub.add_parser(name, help="（尚未实现）")
         stub.set_defaults(func=cmd_stub)
     return parser

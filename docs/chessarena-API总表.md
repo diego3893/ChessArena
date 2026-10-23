@@ -152,13 +152,13 @@
 
 | 成员 | 对应 HTTP | 说明 |
 |---|---|---|
-| `Client(base_url, *, timeout=10)` | — | 如 `Client("http://127.0.0.1:8000")` |
+| `Client(base_url, *, timeout=10, side=None)` | — | 如 `Client("http://127.0.0.1:8000")`；`side` 用于 `wait_my_turn` |
 | `.state()` | `GET /state` | 返回 `State` |
 | `.board()` | `GET /state` | 返回 `Board` |
-| `.submit(move)` | `POST /move` | 返回 `Result` |
-| `.legal_moves()` | `GET /legal_moves` | |
-| `.wait_my_turn(timeout)` | 轮询 `GET /state` | |
-| `.reset(fen=None)` | `POST /reset` | |
+| `.submit(move)` | `POST /move` | 返回 `Result`（与同进程同码同因） |
+| `.legal_moves()` | `GET /legal_moves` | 返回 `tuple[str, ...]` |
+| `.wait_my_turn(timeout=10.0)` | 轮询 `GET /state` | `side` 未知时以首次观察到的走子方为准；超时返回 False |
+| `.reset(fen=None)` | `POST /reset` | 返回 `Result` |
 
 服务端只需 3 个端点，`curl` 即可玩：
 
@@ -167,6 +167,15 @@ curl localhost:8000/state
 curl -X POST localhost:8000/move -d '{"move":"e2e4"}'
 curl -X POST localhost:8000/reset -d '{}'
 ```
+
+HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §16）：
+
+| `Result.code` | HTTP | 含义 |
+|---|---|---|
+| `0` | `200` | 落子成功 |
+| `-1` / `-2` | `400` | 非法 / 格式错 |
+| `-3` | `409` | 不是该方回合（含"现在是 AI 回合"） |
+| `-4` | `410` | 对局已结束 |
 
 ---
 
@@ -334,3 +343,59 @@ curl -X POST localhost:8000/reset -d '{}'
 | 超时（`timeout`） | 计入 `timeout` 处置（§13） |
 
 > **约定**：`turn` 用 `"w"`/`"b"`，与 `State.turn` 一致；`legal_moves` 与 `State.legal_moves` 同序同内容。两种协议都不改棋盘——平台只把它的回答转成 `submit()` 的一次调用。
+
+---
+
+## 16. 推送协议（WebSocket + HTTP 端点）
+
+页面与 `Client` 共用同一套 JSON。**快照只有一个形状**：`Game.to_json()`（§2.2 字段集合）——所有消息里的 `state` 字段都是它，前端不需要第二套解析。
+
+### 16.1 快照对象 `state`
+
+```json
+{"game_id": "20261023-014530-1e44", "fen": "rnbqkbnr/...",
+ "turn": "w", "ply": 0, "history": [],
+ "legal_moves": ["a2a3", "..."], "is_check": false,
+ "over": false, "result": null, "over_reason": null, "last_error": null,
+ "white": "贪心 (L2)", "black": "随机 (L1)"}
+```
+
+`history` / `legal_moves` 是**数组**（JSON 没有 tuple），顺序与 `State` 一致。
+
+### 16.2 HTTP 端点
+
+| 方法 | 路径 | 请求体 | 成功响应 | 失败响应 |
+|---|---|---|---|---|
+| `GET` | `/state` | — | `200` + 快照 | — |
+| `GET` | `/legal_moves` | — | `200` `{"turn":"w","legal_moves":[...]}` | — |
+| `POST` | `/move` | `{"move":"e2e4"}` | `200` `{"result":{...},"state":{...}}` | `400/409/410`，体同形（`result.code` 说明原因） |
+| `POST` | `/reset` | `{}` 或 `{"fen":"..."}` | `200` `{"result":{"code":0,...},"state":{...}}` | `400` 非法 FEN |
+| `GET` | `/pgn` | — | `200` `text/plain` | — |
+| `POST` | `/control` | `{"action":"pause\|resume\|step\|new\|speed","speed":1.0}` | `200` `{"paused":false,"speed":1.0,"state":{...}}` | `400` 未知动作 |
+| `WS` | `/ws` | — | 见 §16.3 | — |
+
+`result` 对象：`{"ok":bool, "code":int, "reason":str, "move":str|null}`（`Result` 的 JSON 化）。
+
+**单机约定**：一个服务进程只跑一局；`/move` 只接受**人类一方**提交，轮到 AI 时返回 `409`（`-3`）。AI 的走子由后台线程驱动，通过 WebSocket 广播。
+
+### 16.3 WebSocket 消息
+
+客户端连上即收 `hello`，之后每条服务端消息都带 `type`：
+
+| `type` | 何时发 | 其余字段 |
+|---|---|---|
+| `hello` | 连接建立 | `state` |
+| `move` | 任何一方成功落子 | `move`、`ply`、`state` |
+| `illegal` | 落子被拒（人类点错） | `move`、`code`、`reason` |
+| `game_over` | 终局 | `result`、`reason`、`state` |
+| `retry` | AI 某步被拒后重试 | `side`、`attempt`、`code`、`reason` |
+| `control` | 暂停/继续/调速 | `paused`、`speed` |
+| `pong` | 回应客户端 `{"type":"ping"}` | — |
+
+客户端可发：`{"type":"ping"}`。其余客户端消息忽略（落子走 HTTP `/move`，保证"单写入口"只有一条路径）。
+
+### 16.4 录像（`record=True`）
+
+无头跑或页面跑都可录像：每局一个 `runs/<game_id>.jsonl`，逐行一个事件，字段与 §16.3 对齐，另加 `"t"`（相对开局秒数）。回放器（阶段 3）只读这个文件。
+
+> 三条不变：正文仍只有 `Game.submit()` 一个写入口；`live` 只是多挂了一个广播监听器；关掉 `live` 后同进程 API 一字不改。

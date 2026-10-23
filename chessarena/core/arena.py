@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .agent import load_agent, resolve_player
 from .game import START_FEN, Game
+from .recorder import Recorder
 
 DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 8000},
@@ -60,11 +61,13 @@ class Arena:
         max_retries=None,
         on_retry_exhausted=None,
         on_timeout=None,
+        runs_dir="runs",
         logger=None,
     ):
         self.live = bool(live)
         self.record = bool(record)
         self.seed = 0 if seed is None else int(seed)
+        self.runs_dir = Path(runs_dir)
         self.config = load_config(config)
         game_cfg = self.config.get("game", {})
         self.timeout = float(timeout if timeout is not None else game_cfg.get("timeout", 3.0))
@@ -81,6 +84,7 @@ class Arena:
         )
         self.logger = logger
         self._games: list[Game] = []
+        self._recorders: list[Recorder] = []
 
     # ------------------------------------------------------------------
     def new_game(
@@ -111,6 +115,9 @@ class Arena:
             logger=self.logger,
         )
         self._games.append(game)
+        if self.record:
+            path = self.runs_dir / ("%s.jsonl" % (game.game_id,))
+            self._recorders.append(Recorder(path, game=game))
         return game
 
     @property
@@ -134,7 +141,10 @@ class Arena:
         raise NotImplementedError("联赛在阶段 5 实现")
 
     def close(self):
-        """释放对局里所有 AI（含外部引擎）。"""
+        """释放对局里所有 AI（含外部引擎）与录像文件。"""
+        for recorder in self._recorders:
+            recorder.close()
+        self._recorders.clear()
         for game in self._games:
             for agent in (game.white, game.black):
                 if agent is not None:

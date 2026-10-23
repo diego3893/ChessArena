@@ -3,6 +3,7 @@
 学生只需要 ``from chessarena import Agent`` 并实现 ``choose_move(state)``。
 """
 
+from .client import Client
 from .core.agent import Agent, HumanAgent
 from .core.arena import Arena
 from .core.board import Board
@@ -31,6 +32,7 @@ __all__ = [
     "HumanAgent",
     "Arena",
     "Board",
+    "Client",
     "EVENTS",
     "Game",
     "RC",

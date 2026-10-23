@@ -306,11 +306,13 @@ class MyAgent(Agent):
 
 ```python
 from chessarena import Client
-c = Client("http://127.0.0.1:8000")
+c = Client("http://127.0.0.1:8000", side="b")   # side 只影响 wait_my_turn
 c.wait_my_turn(); c.submit("e2e4"); c.board().get(4, 3)
 ```
 
 后端只需实现 3 个端点（`GET /state`、`POST /move`、`POST /reset`），用 `curl` 也能玩。
+
+页面走的是本机 WebSocket（`/ws`）：每步落子推一条 `move`，终局推 `game_over`。消息格式与 HTTP 状态码见《API总表》§16——页面与 `Client` 读同一份快照，不会出现"两边各有一套状态"。
 
 ### 落子永远是受控的
 
