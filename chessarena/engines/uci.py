@@ -13,7 +13,7 @@ import chess.engine
 from ..core.errors import EngineError
 
 #: 默认放在 thirdparty/ 下的官方 Stockfish
-DEFAULT_STOCKFISH = "thirdparty/stockfish/stockfish-windows-x86-64-universal.exe"
+DEFAULT_STOCKFISH = "thirdparty/stockfish-windows-x86-64-universal.exe"
 
 
 def project_root() -> Path:
@@ -32,7 +32,7 @@ def resolve_stockfish_path(path=None) -> Path:
         if p.is_file():
             return p
     raise EngineError(
-        "找不到 Stockfish 可执行文件。把 zip 解压到 thirdparty/stockfish/，"
+        "找不到 Stockfish 可执行文件。把官方 exe 放到 thirdparty/，"
         "或设置环境变量 CHESSARENA_STOCKFISH 指向 exe。"
     )
 

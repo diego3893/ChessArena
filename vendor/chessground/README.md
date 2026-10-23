@@ -17,7 +17,7 @@
 - 来源：`npm pack @lichess-org/chessground` → `lichess-org-chessground-10.5.0.tgz`
 - `dist/chessground.min.js` SHA256：`CCC1AAF2389A7FACA68C47E1DF24B91976DAD208FDD005100E655CB0EF70A591`
 - 一致性检查：文件含 `export {` 与 `Chessground`，不含 `sourceMappingURL`。
-- 对应源码：<https://github.com/lichess-org/chessground>（本仓库 `thirdparty/chessground/` 有克隆副本）
+- 对应源码：[仓库内10.5.0源码归档](../../thirdparty/chessground-source-10.5.0.tar.gz)，固定上游提交`b4f605018e1043640c917e82a74b214cb58e4a05`。归档包括TypeScript源码、构建配置及依赖锁文件，校验值和在线来源见[第三方分发说明](../../thirdparty/README.md)。
 
 ## 许可证
 

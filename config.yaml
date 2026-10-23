@@ -21,4 +21,4 @@ builtin: [random, greedy, minimax2, minimax3, stockfish]
 stockfish:
   elo: 2600              # 1320–3190；1600 ≈ 俱乐部初学者，2600 认真下打不过
   movetime: 1.0          # 每步思考秒数（要小于 game.timeout）
-  path: thirdparty/stockfish/stockfish-windows-x86-64-universal.exe
+  path: thirdparty/stockfish-windows-x86-64-universal.exe

@@ -9,6 +9,7 @@ vendor/** -text
 
 # 二进制
 *.zip binary
+*.tar.gz binary
 *.png binary
 *.jpg binary
 *.exe binary

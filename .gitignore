@@ -11,7 +11,7 @@ results/
 agents/weights/*.pt
 agents/weights/*.pth
 
-# 第三方大文件 / 上游克隆：按需从官方渠道重新获取
+# 官方exe、对应源码归档和许可证随仓库分发；忽略本地上游克隆及重复下载包
 thirdparty/chessground/
 thirdparty/stockfish/
 thirdparty/*.zip
