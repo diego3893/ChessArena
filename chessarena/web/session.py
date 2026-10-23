@@ -79,7 +79,12 @@ class Session:
 
     def snapshot(self) -> dict:
         with self._lock:
-            return self._game.to_json()
+            payload = self._game.to_json()
+            payload["human"] = {"w": self._is_human("w"), "b": self._is_human("b")}
+            payload["paused"] = self._paused
+            payload["speed"] = self._speed
+            payload["timeout"] = self.arena.timeout
+            return payload
 
     # ------------------------------------------------------------------
     def submit(self, move) -> Result:
@@ -106,11 +111,11 @@ class Session:
             except ValueError as exc:
                 return Result(RC.BAD_FORMAT, "起始 FEN 不合法：%s" % (exc,), None)
             self._paused = False
-            self.hub.push({"type": "reset", "state": game.to_json()})
+            self.hub.push({"type": "reset", "state": self.snapshot()})
             return Result(RC.OK, "已重开", None)
 
-    def control(self, action, speed=None):
-        """暂停 / 继续 / 单步 / 调速 / 开新局。"""
+    def control(self, action, speed=None, white=None, black=None):
+        """暂停 / 继续 / 单步 / 调速 / 悔棋 / 认输 / 开新局。"""
         with self._lock:
             game = self._game
             if action == "pause":
@@ -123,12 +128,27 @@ class Session:
             elif action == "step":
                 if not game.over and not self._is_human(game.turn):
                     game.step()
+            elif action == "undo":
+                # 退到人类回合：人机模式一步悔棋 = 退两步（自己 + AI 应手）
+                human = [side for side in ("w", "b") if self._is_human(side)]
+                if len(human) == 1:
+                    plies = 2 if game.turn == human[0] else 1
+                else:
+                    plies = 1
+                game.undo(plies)
+            elif action == "resign":
+                human = [side for side in ("w", "b") if self._is_human(side)]
+                game.resign(human[0] if len(human) == 1 else game.turn)
             elif action == "new":
+                if white:
+                    self.white_spec = white
+                if black:
+                    self.black_spec = black
                 self._build_game()
                 self._paused = False
             else:
-                raise ValueError("未知动作：%r（可用 pause/resume/step/speed/new）" % (action,))
-            state = self._game.to_json()
+                raise ValueError("未知动作：%r（可用 pause/resume/step/speed/undo/resign/new）" % (action,))
+            state = self.snapshot()
             message = {"type": "control", "paused": self._paused, "speed": self._speed, "state": state}
             self.hub.push(message)
             return message
@@ -156,7 +176,7 @@ class Session:
     # --- 事件 → 广播 ---------------------------------------------------
     def _on_move(self, move, result):
         self.hub.push({"type": "move", "move": move, "ply": self._game.ply,
-                       "state": self._game.to_json()})
+                       "state": self.snapshot()})
 
     def _on_illegal(self, move, result):
         self.hub.push({"type": "illegal", "move": move, "code": result.code,
@@ -164,7 +184,7 @@ class Session:
 
     def _on_game_over(self, result, reason):
         self.hub.push({"type": "game_over", "result": result, "reason": reason,
-                       "state": self._game.to_json()})
+                       "state": self.snapshot()})
 
     def _on_retry(self, side, attempt, result):
         self.hub.push({"type": "retry", "side": side, "attempt": attempt,

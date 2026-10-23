@@ -2,15 +2,22 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..web.session import Session
 
 _STATUS = {0: 200, -1: 400, -2: 400, -3: 409, -4: 410}
 _SENTINEL = object()
+UI_DIR = Path(__file__).resolve().parent / "ui"
+ROOT_DIR = Path(__file__).resolve().parents[2]
+VENDOR_DIR = ROOT_DIR / "vendor"
+_NO_CACHE = {"Cache-Control": "no-store"}
+
 
 
 def _envelope(result, session):
@@ -39,14 +46,28 @@ def create_app(session: Session) -> FastAPI:
     app = FastAPI(title="ChessArena", version=__version__, lifespan=lifespan)
     app.state.session = session
 
-    # --- 读 -----------------------------------------------------------
+    if UI_DIR.is_dir():
+        app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
+    if VENDOR_DIR.is_dir():
+        app.mount("/vendor", StaticFiles(directory=str(VENDOR_DIR)), name="vendor")
+
+    # --- 页面 ---------------------------------------------------------
     @app.get("/")
     def index():
-        return {"name": "ChessArena", "version": __version__, "state": session.snapshot()}
+        page = UI_DIR / "index.html"
+        if page.is_file():
+            return FileResponse(page, headers=_NO_CACHE)
+        return JSONResponse({
+            "name": "ChessArena",
+            "version": __version__,
+            "hint": "前端页面尚未构建（web/ui/ 不存在）",
+            "state": session.snapshot(),
+        })
 
+    # --- 读 -----------------------------------------------------------
     @app.get("/state")
     def get_state():
-        return session.snapshot()
+        return JSONResponse(session.snapshot(), headers=_NO_CACHE)
 
     @app.get("/legal_moves")
     def get_legal_moves():
@@ -72,7 +93,12 @@ def create_app(session: Session) -> FastAPI:
     def post_control(payload: dict = Body(default=None)):
         body = payload or {}
         try:
-            message = session.control(body.get("action"), body.get("speed"))
+            message = session.control(
+                body.get("action"),
+                body.get("speed"),
+                body.get("white"),
+                body.get("black"),
+            )
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         return JSONResponse(message)
@@ -83,7 +109,7 @@ def create_app(session: Session) -> FastAPI:
         await sock.accept()
         queue: asyncio.Queue = asyncio.Queue()
         session.hub.register(queue)
-        await sock.send_json({"type": "hello", "state": session.snapshot()})
+        await sock.send_json({"type": "hello", "version": __version__, "state": session.snapshot()})
         sender = asyncio.create_task(_send_loop(sock, queue))
         reader = asyncio.create_task(_read_loop(sock, queue))
         try:

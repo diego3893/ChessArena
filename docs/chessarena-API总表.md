@@ -353,12 +353,21 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 ### 16.1 快照对象 `state`
 
 ```json
-{"game_id": "20261023-014530-1e44", "fen": "rnbqkbnr/...",
- "turn": "w", "ply": 0, "history": [],
- "legal_moves": ["a2a3", "..."], "is_check": false,
+{"game_id": "20261023-014530-1e44", "start_fen": "rnbqkbnr/...",
+ "fen": "rnbqkbnr/...", "turn": "w", "ply": 0,
+ "history": [], "history_san": [], "legal_moves": ["a2a3", "..."],
+ "last_move": "e2e4", "captured": {"w": ["p"], "b": []}, "is_check": false,
  "over": false, "result": null, "over_reason": null, "last_error": null,
- "white": "贪心 (L2)", "black": "随机 (L1)"}
+ "white": "贪心 (L2)", "black": "随机 (L1)",
+ "human": {"w": true, "b": false}, "paused": false, "speed": 1.0, "timeout": 3.0}
 ```
+
+| 字段 | 说明 |
+|---|---|
+| `history` / `history_san` | 同一串着法的 UCI 与 SAN 两种写法（SAN 由服务端算，前端不重写规则） |
+| `captured` | 各自吃掉的子：`w` = 白方吃掉的黑子（小写符号），`b` = 黑方吃掉的白子 |
+| `last_move` | 上一步 UCI，没有则 `null` |
+| `human` / `paused` / `speed` / `timeout` | **服务端补充的会话字段**（不属于 `Game`）：该方是否人类、是否暂停、速度倍率、每步限时 |
 
 `history` / `legal_moves` 是**数组**（JSON 没有 tuple），顺序与 `State` 一致。
 
@@ -371,8 +380,19 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `POST` | `/move` | `{"move":"e2e4"}` | `200` `{"result":{...},"state":{...}}` | `400/409/410`，体同形（`result.code` 说明原因） |
 | `POST` | `/reset` | `{}` 或 `{"fen":"..."}` | `200` `{"result":{"code":0,...},"state":{...}}` | `400` 非法 FEN |
 | `GET` | `/pgn` | — | `200` `text/plain` | — |
-| `POST` | `/control` | `{"action":"pause\|resume\|step\|new\|speed","speed":1.0}` | `200` `{"paused":false,"speed":1.0,"state":{...}}` | `400` 未知动作 |
+| `POST` | `/control` | 见下表 | `200` `{"paused":false,"speed":1.0,"state":{...}}` | `400` 未知动作 |
 | `WS` | `/ws` | — | 见 §16.3 | — |
+
+`/control` 的动作：
+
+| `action` | 额外字段 | 效果 |
+|---|---|---|
+| `pause` / `resume` | — | 暂停 / 继续 AI 走子 |
+| `step` | — | 暂停状态下让 AI 走一步 |
+| `speed` | `speed` | 速度倍率（0.05–20） |
+| `undo` | — | 悔棋：人机退两步（自己 + AI 应手），其余退一步 |
+| `resign` | — | 人类一方认输 |
+| `new` | `white`、`black`（可选） | 重开；给了选手写法就同时切换对局双方（人机 ↔ 机机） |
 
 `result` 对象：`{"ok":bool, "code":int, "reason":str, "move":str|null}`（`Result` 的 JSON 化）。
 
@@ -384,12 +404,13 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 
 | `type` | 何时发 | 其余字段 |
 |---|---|---|
-| `hello` | 连接建立 | `state` |
+| `hello` | 连接建立 | `state`、`version` |
 | `move` | 任何一方成功落子 | `move`、`ply`、`state` |
 | `illegal` | 落子被拒（人类点错） | `move`、`code`、`reason` |
 | `game_over` | 终局 | `result`、`reason`、`state` |
 | `retry` | AI 某步被拒后重试 | `side`、`attempt`、`code`、`reason` |
-| `control` | 暂停/继续/调速 | `paused`、`speed` |
+| `control` | 暂停/继续/调速/悔棋/认输/开新局 | `paused`、`speed`、`state` |
+| `reset` | `POST /reset` 之后 | `state` |
 | `pong` | 回应客户端 `{"type":"ping"}` | — |
 
 客户端可发：`{"type":"ping"}`。其余客户端消息忽略（落子走 HTTP `/move`，保证"单写入口"只有一条路径）。

@@ -332,6 +332,9 @@ class TestDriving(unittest.TestCase):
         payload = g.to_json()
         self.assertEqual(payload["turn"], "b")
         self.assertEqual(payload["history"], ["e2e4"])
+        self.assertEqual(payload["history_san"], ["e4"])
+        self.assertEqual(payload["last_move"], "e2e4")
+        self.assertEqual(payload["captured"], {"w": [], "b": []})
         self.assertFalse(payload["over"])
 
     def test_throughput(self):

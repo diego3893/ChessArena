@@ -59,7 +59,9 @@ python -m chessarena serve
 | 对局结束 | 棋盘变灰不可点，中间浮出"白方胜 · 将杀"，同时列出终局原因（将杀 / 逼和 / 三次重复 / 50 步 / 认输 / 超时） |
 | 悔棋 | 一步退两步（连 AI 的应手一起退），随时可用 |
 
-**右侧面板**：双方名称与用时（倒计时，最后 30 秒变红）、局面评估条（用子力+轻量搜索估的，不是精确值）、SAN 记谱列表、被吃棋子。
+**右侧面板**：双方名称与执子方标记（人 / AI）、SAN 记谱列表、被吃棋子。局面上方显示"谁走棋 · 第几步 · 每步限时"。
+
+> v1 只有**每步限时**（默认 3.0s，含重试），没有整盘倒计时；界面上显示的是限时提示而不是 10:00 倒计时。
 
 **底部按钮**：新对局 / 悔棋 / 认输 / 翻转棋盘（执黑时用）/ 导出 PGN / 复制 FEN。
 
@@ -84,10 +86,9 @@ python -m chessarena serve
 ### 2. 机机对战（观战）
 选「机机」，左右各选一个 AI。两个 AI 自动轮流走子，**你会看到棋子自己动起来**。
 
-- 速度可调：`0.25× / 0.5× / 1× / 4× / 瞬间`（瞬间模式下每步只留 100ms 让你看清落子）
+- 速度可调：`0.25× / 1× / 4× / 瞬间`（瞬间 = 20×，每步几乎不停顿）
 - 随时可「暂停 / 继续 / 单步」
-- 每步旁边显示 AI 用时和它搜了多少个节点（如果它自己报了的话）
-- 一方出错会弹出原因："黑方返回非法着法 a1a2，白方胜"，不会静默卡住
+- 一方出错会弹出原因（如"黑方重试次数用尽，判负"），不会静默卡住
 
 ### 3. 学生 AI vs 内置 AI
 ai 列表里会**自动出现** `agents/` 目录下你写的所有 Agent，选它就能下场，跟内置档位对打。
@@ -376,21 +377,25 @@ builtin: [random, greedy, minimax2, minimax3, stockfish]
 
 ```
 ChessArena/                    # 项目根（仓库名）
-├── start.bat                  # Windows 一键启动
-├── config.yaml                # 改端口、超时、联赛设置
-├── agents/                    # ★ 学生把自己的 AI 放这里
-│   ├── examples/
-│   │   ├── random_agent.py    # 最小可运行样例（10 行）
-│   │   ├── minimax_agent.py   # 带 alpha-beta 的完整样例（120 行，注释详尽）
-│   │   └── uci_engine.py      # UCI 方式样例
-│   └── agents.json            # 注册 UCI / HTTP 类型的 AI
-├── builtin/                   # 5 档内置 AI（每一档都是独立可读文件）
-├── chessarena/                # 平台本体：裁判、Agent 加载、联赛、Web 服务
-├── web/                       # 前端静态文件（已打包，不用动）
-├── runs/                      # 对局日志
-├── results/                   # 联赛报告（HTML + PGN）
-└── assignments/               # ★ 给学生的作业模板与评分脚本
+├── chessarena/                # 平台本体
+│   ├── core/                  # 裁判 Game、Board、State、Agent、Arena、录像
+│   ├── builtin/               # 内置 L1 random / L2 greedy（L3–L5 在阶段 4）
+│   ├── web/                   # FastAPI 服务 + WebSocket
+│   │   └── ui/                # 页面：index.html / app.js / style.css
+│   ├── client.py              # 跨进程 Client
+│   └── cli.py                 # python -m chessarena play / serve
+├── vendor/chessground/        # 前端预构建产物（零构建，直接引）
+├── thirdparty/                # chessground 源码克隆 + Stockfish 压缩包
+├── tests/                     # unittest：内核 + 服务 + 前端接线
+├── runs/                      # 录像 runs/<game_id>.jsonl、日志
+├── results/                   # 联赛报告（阶段 5）
+├── agents/                    # ★ 学生把自己的 AI 放这里（阶段 6）
+├── assignments/               # 作业模板与评分脚本（阶段 6）
+├── config.yaml                # 改端口、超时、联赛设置（阶段 6）
+└── start.bat                  # Windows 一键启动（阶段 6）
 ```
+
+> 现阶段 `agents/`、`assignments/`、`config.yaml`、`start.bat` 还没有落地——它们属于阶段 6，代码已经能按默认值跑通。
 
 ---
 

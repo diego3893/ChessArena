@@ -118,6 +118,7 @@ class TestHttpEndpoints(unittest.TestCase):
 
     def test_move_when_ai_turn_is_409(self):
         with ServerFixture("builtin:random", "builtin:random") as fx:
+            fx.post("/control", {"action": "pause"})  # 冻结局面，避免 AI 回合快速翻页
             status, body = fx.post("/move", {"move": "e2e4"})
             self.assertEqual(status, 409)
             self.assertEqual(body["result"]["code"], RC.NOT_YOUR_TURN)
@@ -227,6 +228,72 @@ class TestWebSocket(unittest.TestCase):
                 ws.send(json.dumps({"type": "ping"}))
                 pong = json.loads(ws.recv(timeout=5))
                 self.assertEqual(pong["type"], "pong")
+
+
+class TestUiAssets(unittest.TestCase):
+    def test_index_and_assets(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            with urllib.request.urlopen(fx.base + "/", timeout=5) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("text/html", resp.headers.get("Content-Type", ""))
+                html = resp.read().decode("utf-8")
+            self.assertIn("ChessArena", html)
+            self.assertIn("/ui/app.js", html)
+            self.assertIn("chessground", html)
+
+            for path in (
+                "/ui/app.js",
+                "/ui/style.css",
+                "/vendor/chessground/dist/chessground.min.js",
+                "/vendor/chessground/assets/chessground.base.css",
+            ):
+                with urllib.request.urlopen(fx.base + path, timeout=5) as resp:
+                    self.assertEqual(resp.status, 200, msg=path)
+                    self.assertTrue(resp.read(), msg=path)
+
+    def test_snapshot_has_ui_fields(self):
+        # 双方都是人类：没有 AI 抢先应手，断言不会被时序干扰
+        with ServerFixture("human", "human") as fx:
+            _, state = fx.get("/state")
+            for key in ("history_san", "captured", "human", "paused", "speed",
+                        "timeout", "start_fen", "last_move"):
+                self.assertIn(key, state, msg=key)
+            self.assertEqual(state["human"], {"w": True, "b": True})
+            self.assertEqual(state["history_san"], [])
+            fx.post("/move", {"move": "e2e4"})
+            _, state = fx.get("/state")
+            self.assertEqual(state["history_san"], ["e4"])
+            self.assertEqual(state["last_move"], "e2e4")
+
+
+class TestControlExtra(unittest.TestCase):
+    def test_new_with_players_switches_to_ava(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.post(
+                "/control",
+                {"action": "new", "white": "builtin:random", "black": "builtin:random"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(body["state"]["human"], {"w": False, "b": False})
+            status, body = fx.post("/move", {"move": "e2e4"})
+            self.assertEqual(status, 409)
+
+    def test_undo_in_human_game(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            fx.post("/move", {"move": "e2e4"})
+            fx.wait_ply(2)
+            status, body = fx.post("/control", {"action": "undo"})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["state"]["ply"], 0)
+            self.assertEqual(body["state"]["turn"], "w")
+
+    def test_resign(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.post("/control", {"action": "resign"})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["state"]["over"], True)
+            self.assertEqual(body["state"]["result"], "0-1")
+            self.assertEqual(body["state"]["over_reason"], "resign")
 
 
 class TestRecordMode(unittest.TestCase):

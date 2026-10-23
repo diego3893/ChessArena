@@ -330,11 +330,15 @@ class Game:
         state = self.state
         return {
             "game_id": self.game_id,
+            "start_fen": self.start_fen,
             "fen": state.fen,
             "turn": state.turn,
             "ply": state.ply,
             "history": list(state.history),
+            "history_san": self._san_history(),
+            "captured": self._captured(),
             "legal_moves": list(state.legal_moves),
+            "last_move": self._history[-1] if self._history else None,
             "is_check": state.is_check,
             "over": self.over,
             "result": self.result,
@@ -343,6 +347,38 @@ class Game:
             "white": getattr(self.white, "name", None),
             "black": getattr(self.black, "name", None),
         }
+
+    def _san_history(self) -> list[str]:
+        """把走过的着法翻成 SAN（前端记谱用，避免在 JS 里重写规则）。"""
+        board = chess.Board(self.start_fen)
+        out: list[str] = []
+        for uci_move in self._history:
+            move = chess.Move.from_uci(uci_move)
+            try:
+                out.append(board.san(move))
+            except ValueError:  # 理论上不会发生；宁可有缺口也不要 500
+                out.append(uci_move)
+            board.push(move)
+        return out
+
+    def _captured(self) -> dict:
+        """双方各吃了哪些子：``{"w": ["p", ...], "b": [...]}``（存被吃方的符号）。"""
+        board = chess.Board(self.start_fen)
+        out = {"w": [], "b": []}
+        for uci_move in self._history:
+            move = chess.Move.from_uci(uci_move)
+            if board.is_capture(move):
+                if board.is_en_passant(move):
+                    square = chess.square(
+                        chess.square_file(move.to_square), chess.square_rank(move.from_square)
+                    )
+                else:
+                    square = move.to_square
+                victim = board.piece_at(square)
+                if victim is not None:
+                    out["w" if victim.color else "b"].append(victim.symbol())
+            board.push(move)
+        return out
 
     # ------------------------------------------------------------------
     # 内部：驱动一方

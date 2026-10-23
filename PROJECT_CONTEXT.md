@@ -39,28 +39,28 @@
 
 ## 4. Current State
 
-**Confirmed（2026-10-23 02:1x，阶段 1 完成 + 阶段 2 服务层完成）：**
+**Confirmed（2026-10-23 02:5x，阶段 2 完成 + 阶段 3 前端落地）：**
 
-- **可运行**：`chessarena/` 20 个模块（约 2,000 行），`tests/` **46 个用例全绿**；`play` 跑通命令行对局，`serve` 起 HTTP+WebSocket 服务（M1、M2 达成，E004/E005）。
-- **已实现**：`RC`/`Result`/`Board`/`State`/`Game`（五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN）/`Agent`/`HumanAgent`/`Arena`/L1/L2/CLI `play`、`serve`；`web/session.py`（驱动线程 + 广播总线）、`web/server.py`（FastAPI：`/state`、`/legal_moves`、`/move`、`/reset`、`/pgn`、`/control`、`WS /ws`）、`Client`（stdlib urllib，方法同构）、录像 `record=True → runs/<game_id>.jsonl`。
-- **协议已定稿**：总表 §16 规定快照形状（`Game.to_json()`）、HTTP 状态码映射（0→200、-1/-2→400、-3→409、-4→410）、7 种 WS 消息（hello/move/illegal/game_over/retry/control/reset/pong）。
-- **依赖**：`chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`websockets 17.3`；`pytest`/`httpx` 未装（测试用 `unittest`）。
-- **文档已收敛**：P003 九处、P005 协议缺口均关闭；说明书补充了 WebSocket 与 `Client(side=...)` 说明。
-- **前端产物**：`vendor/chessground/`（min.js 33,291 B，SHA256 `CCC1AAF…0A591`）。
-- **版本控制**：`a7da3df`（M0）→ `8eeaab2`（阶段 1）；阶段 2 待提交。
-- **Stockfish 未解压**：81,431,614 B，SHA256 `…C30B48A7`，内含 `stockfish/…universal.exe`。
-- **中文输出**：CLI 已 `reconfigure(utf-8)`；我在 pwsh 验证仍需 `$env:PYTHONIOENCODING='utf-8'`（D012 / P004）。
+- **可运行**：`chessarena/` 25 个 Python 模块 2,781 行 + 前端 676 行；`tests/` **55 个用例全绿**（连续 5 轮）；`play` / `serve` / 浏览器页面齐备（M1、M2 达成；M3 代码完成、待人工浏览器验收，E006）。
+- **已实现**：内核（五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN + `history_san`/`captured`）；`web/session.py`（驱动线程 + 广播 + 暂停/单步/调速/悔棋/认输/换模式）、`web/server.py`（FastAPI + 静态页 + `WS /ws`）、`Client`、录像 JSONL。
+- **前端**：`web/ui/{index.html,app.js,style.css}`，chessground 零构建（引 `vendor/chessground` 的 min.js + base/brown/cburnett CSS）：拖拽/点击落子、合法点、升变四选一、上一步、将军高亮、SAN 记谱、吃子、翻转、新局/悔棋/认输/导出 PGN/复制 FEN、机机调速与暂停单步；输赢弹层。
+- **协议**：总表 §16 定稿（快照字段含 `history_san`/`captured`/`human`/`paused`/`speed`/`timeout`；`/control` 增加 `undo`/`resign`/带选手的 `new`；`hello` 带 `version`）。
+- **依赖**：`chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`websockets 17.3`；无前端构建链。
+- **版本控制**：`a7da3df`（M0）→ `8eeaab2`（阶段 1）→ `b4a56b5`（阶段 2）；阶段 3 待提交。
+- **Stockfish 未解压**：81,431,614 B，SHA256 `…C30B48A7`。
+- **中文输出**：CLI/页面均 UTF-8；我在 pwsh 验证仍需 `$env:PYTHONIOENCODING='utf-8'`（D012 / P004）。
 
 **Current assessment：**
 
-- 传输层已验证：`curl` 三个端点、`Client` 与同进程同码同因、WS 收到 hello/move/game_over、暂停/单步/调速可用、录像按事件流落盘。
-- 无头吞吐实测 **7,067 plies/s**（目标 ≥1000）。
-- 尚未做的：前端页面（阶段 3）、L3–L5 与 UCI（阶段 4）、联赛（阶段 5）、教学包（阶段 6）。
-- **当前位置：阶段 0、1、2 完成（M0–M2）→ 阶段 3 起点。**
+- 传输层与页面接线都由测试锁住：HTTP 状态码、WS 消息、`Client` 同构、`/control` 全动作、静态资源 200、JS 引用的 id 与资源均存在、`node --check` 通过。
+- 无头吞吐 **7,067 plies/s**；55 个用例 6.2s。
+- **未验证**：真实浏览器里的点击/拖拽与动画（本机 Edge 在沙箱里起不来，见 E006 / P008）。
+- 尚未做的：L3–L5 与 UCI（阶段 4）、联赛（阶段 5）、教学包（阶段 6）。
+- **当前位置：阶段 0–2 完成（M0–M2），阶段 3 实现完成、待浏览器验收（M3）。**
 
 **Main issue：**
 
-- 无阻塞项。阶段 3 的前置已经齐全：vendor 产物、WS 协议、`/control` 的暂停/单步/调速。风险集中在前端代码量（约 600–800 行 JS + CSS）。
+- 唯一未闭环的是 M3 的人工浏览器验收，不影响继续做阶段 4。
 
 ## 5. Architecture / Mental Model
 
@@ -92,14 +92,14 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 | **0 · 文档与资源冻结** | 4 份文档对同一接口只有一种说法；前端产物落到项目内 | **M0**：P003 的 9 处冲突改完；P005 的 UCI/HTTP 注册协议补进总表；`vendor/chessground/` 迁入；GPL 结论（P002）记录为决策 | S · 半天 | **完成**（M0 达成） |
 | **1 · 裁判内核 + 命令行闭环** | `chessarena` 包最小纵向切片：`Game.submit` 全返回码、原子性、重试预算、超时、终局判定、PGN；内置 L1/L2 | **M1**：`python -m chessarena play --white builtin:random --black builtin:greedy` 跑完整局并打印 PGN；`unittest` 覆盖 5 个返回码 + 原子性 + 终局；中文不乱码 | M · 600–800 行 | **完成**（M1 达成，实测 1,450 行） |
 | **2 · 运行模式 + Web 服务 + Client** | `live` / `headless` / `record` 三模式；FastAPI 3 端点 + WebSocket 推送；跨进程 `Client` 方法名同构 | **M2**：无头实测 ≥1000 plies/s；`curl` 三端点可用；`Client` 与同进程 API 同名同返回 | M | **完成**（M2 达成，吞吐 7,067 plies/s） |
-| **3 · 前端（chessground 零构建）** | 引 vendor 的 `min.js` + CSS：合法点高亮、升变、上一步、将军、SAN 列表、时钟、悔棋、翻转、导出 PGN；人机 + 机机（调速/暂停/单步） | **M3**：浏览器人机对局可完成并正确判负；机机可观战；控制台零报错 | L | **下一步**（未开始） |
-| **4 · 五档内置 + Stockfish** | L3 minimax2 / L4 minimax3+alpha-beta（各独立 50–150 行）；解压 Stockfish 走 UCI，配 ELO/时限 | **M4**：五档在 UI 中可选；实测每步耗时写入文档（L4 中局 ≤1s）；Stockfish 冒烟对局通过 | M | 未开始（可与阶段 3 并行） |
+| **3 · 前端（chessground 零构建）** | 引 vendor 的 `min.js` + CSS：合法点高亮、升变、上一步、将军、SAN 列表、吃子、悔棋、翻转、导出 PGN；人机 + 机机（调速/暂停/单步） | **M3**：浏览器人机对局可完成并正确判负；机机可观战；控制台零报错 | L | **实现完成，待人工浏览器验收**（E006） |
+| **4 · 五档内置 + Stockfish** | L3 minimax2 / L4 minimax3+alpha-beta（各独立 50–150 行）；解压 Stockfish 走 UCI，配 ELO/时限 | **M4**：五档在 UI 中可选；实测每步耗时写入文档（L4 中局 ≤1s）；Stockfish 冒烟对局通过 | M | **下一步**（可与 M3 验收并行） |
 | **5 · 联赛 + ELO + 报告** | 循环赛、随机开局、并发、ELO、**非法率列**、`results/league-*.html` + PGN 打包、断点续跑 | **M5**：一条命令跑 L1–L4 循环赛并生成 ELO 表 | M | 未开始（依赖 M2） |
 | **6 · 教学交付** | `agents/examples/` 3 个样例、`assignments/` 骨架 + 评分脚本、`requirements.txt`、`start.bat`、给学生的一页调用约定 | **M6**：新机器按 README 三步启动；3 个样例通过自测命令 | S–M | 未开始 |
 
 **依赖**：0 → 1 → 2 → 3；4 依赖 1；5 依赖 2；6 最后。**里程碑 ↔ 需求**：M1↔R3、M2↔R5、M3↔R1/R2、M4↔R4、M5↔"一条命令出 ELO"、M6↔教学使用。
 
-**当前阶段判定**：阶段 0–2 已完成（M0–M2）；阶段 3（前端页面）是当前工作阶段。入口条件已满足（vendor 产物 + §16 协议 + `/control`），无需再改后端契约。
+**当前阶段判定**：阶段 0–2 完成（M0–M2），阶段 3 代码完成、只剩人工浏览器验收（M3）；阶段 4（L3–L5 + Stockfish）是下一块可独立推进的工作。
 
 ## 7. Important Files
 
@@ -109,18 +109,22 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 | `docs/chessarena-API规格.md` | 设计意图、返回码语义、重试规则 | 已与总表对齐 |
 | `docs/chessarena-使用说明书.md` | 产品形态、界面线框、五档难度、教学节奏 | 已与总表对齐（P003 关闭） |
 | `docs/chess-ai-platform-research.md` | GitHub 选型调研（星数/License 实测） | 调研期结论；其中"非法着法判负"已被 D004 取代 |
-| `chessarena/core/game.py` | 裁判：`submit` 五返回码、原子性、重试/超时、终局、事件、PGN | 阶段 1 核心，503 行 |
+| `chessarena/core/game.py` | 裁判：`submit` 五返回码、原子性、重试/超时、终局、事件、PGN、`history_san`/`captured` | 阶段 1 核心，约 540 行 |
 | `chessarena/core/state.py` | 不可变快照 + `apply` 沙盘推演 | 学生写 minimax 的入口 |
 | `chessarena/core/board.py` | 只读棋盘视图（无写方法） | 与 `Game` 共享同一份真相 |
 | `chessarena/core/{rc,result,moves,agent,arena,errors,recorder}.py` | 返回码 / 结果 / 坐标 / 选手 / 装配 / 异常 / 录像 | `record=True` 时写 `runs/<game_id>.jsonl` |
-| `chessarena/web/session.py` | 服务端会话：驱动线程（AI 自动走）+ `Hub` 广播 + 暂停/单步/调速 | 单进程一局（D017） |
-| `chessarena/web/server.py` | FastAPI：7 个 HTTP 端点 + `WS /ws` | 协议见总表 §16 |
+| `chessarena/web/session.py` | 服务端会话：驱动线程 + `Hub` 广播 + 暂停/单步/调速/悔棋/认输/换模式 | 单进程一局（D017） |
+| `chessarena/web/server.py` | FastAPI：HTTP 端点 + `WS /ws` + 静态页（`/`、`/ui`、`/vendor`） | 协议见总表 §16 |
+| `chessarena/web/ui/index.html` | 页面骨架（顶栏 / 棋盘 / 侧栏 / 控制 / 弹层） | 引 chessground 的 CSS 与 ESM |
+| `chessarena/web/ui/app.js` | 连接 WS、渲染快照、落子/升变/悔棋/导出、机机调速 | **不含规则**，只信服务端 |
+| `chessarena/web/ui/style.css` | 深色布局、面板、弹层、响应式 | 676 行前端合计 |
 | `chessarena/client.py` | `Client`：stdlib urllib，方法与同进程同构 | 无第三方依赖 |
 | `chessarena/builtin/` | L1 random、L2 greedy（各 ≤60 行，作教材） | L3–L5 阶段 4 补 |
 | `chessarena/cli.py` | `play` / `serve` / `--version` | `league`/`test`/`replay` 仍是占位 |
 | `tests/test_kernel.py` | 32 个用例（返回码/原子性/终局/驱动） | `python -m unittest discover -s tests -t .` |
-| `tests/test_server.py` | 14 个集成用例（真实 uvicorn + HTTP + WS + Client + 录像） | 每例起随机端口的服务 |
-| `vendor/chessground/` | 前端预构建产物（min.js 33,291 B + 3 CSS + LICENSE） | 零构建，阶段 3 直接引 |
+| `tests/test_server.py` | 19 个集成用例（真实 uvicorn + HTTP + WS + Client + 录像 + 静态资源） | 每例起随机端口的服务 |
+| `tests/test_ui.py` | 4 个静态用例（选择器/资源/类名/无前端规则） | 挡住"JS 找不存在的 id"这类错 |
+| `vendor/chessground/` | 前端预构建产物（min.js 33,291 B + 3 CSS + LICENSE） | 页面经 `/vendor/...` 直接引 |
 | `thirdparty/stockfish-windows-x86-64-universal.zip` | L5 引擎 | 未解压；内含 `stockfish/…universal.exe` |
 | `thirdparty/chessground/` | 参考源码（GPL-3.0，shallow clone v10.5.0） | 仅供阅读；**不需要构建**，无 `dist/`；已 gitignore |
 
@@ -272,6 +276,22 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Implication:** 一个进程内只有驱动线程会推进 AI，别在别处再调 `game.step()`（会撞轮次）。
 **Status:** Active
 
+### D019 — 前端不含棋规：记谱/吃子/合法性全部由服务端算
+
+**Decision:** 页面只做三件事——画 `state.fen`、发 `POST /move`、按 WS 消息刷新；SAN（`history_san`）与吃子（`captured`）由 `Game.to_json()` 提供；升变四选一在前端做，但只在服务端 `legal_moves` 里出现 5 字符着法时才弹。
+**Reason:** 在 JS 里重写 SAN/吃过路兵/升变必然与 Python 侧漂移；页面与 PGN 必须永远一致。
+**Evidence:** `test_ui.py::test_no_legacy_engine_calls`（前端不引 chess.js、不自己算合法着法）；`history_san`/`captured` 的内核测试。
+**Implication:** 新增任何展示字段，先加到 `Game.to_json()`（并同步 §16.1），前端只读。
+**Status:** Active
+
+### D020 — 非法落子用"整盘重绘"回滚
+
+**Decision:** 用户在页面上走了非法着法时，不手工把棋子挪回去，而是用服务端返回的 `state.fen` 重新 `ground.set()`。
+**Reason:** 手工撤销要复刻 chessground 内部坐标与动画，容易和"最后一手/将军"标记不一致；重绘只有一个真相。
+**Evidence:** `app.js::render` + `/move` 的 400 响应体带完整 `state`。
+**Implication:** 代价是一次 180ms 动画重放，可接受；不要在前端维护第二份局面。
+**Status:** Active
+
 ## 9. Experiments / Results
 
 ### E001 — chessground 预构建产物可得性与完整性
@@ -315,7 +335,7 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Purpose:** 验证 HTTP/WS/Client/录像在真实 uvicorn 下成立，并复测无头吞吐。
 **Setup:** `python -m unittest tests.test_server`（14 个用例，每个在后台线程起一个随机端口的 uvicorn）；手动 `python -m chessarena serve --port 8765` + urllib/`websockets.sync` 验证；吞吐用 200 步循环计时。
 **Result:**
-- 全部 46 个用例（32 内核 + 14 集成）全绿，4.8 s。
+- 全部 46 个用例（32 内核 + 14 集成）全绿，4.8 s（阶段 3 又加了 4 个前端静态用例，现共 55）。
 - `GET /state` → `turn=w`、20 个合法着法；`POST /move e2e4` → `200` + `ply=1`，AI 随即应手；非法着法 → `400`、格式错 → `400`、AI 回合 → `409`、终局后 → `410`。
 - `POST /control`：`pause` 后 0.5 s 内 `ply` 不变；`step` 恰好 +1；`resume` 继续；`speed` 生效；未知动作 → `400`。
 - WS：连接即收 `hello`，落子收 `move`，将杀收 `game_over`（`0-1`/`checkmate`），`ping`/`pong` 正常。
@@ -323,6 +343,19 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - 录像：`record=True` 写 `runs/<game_id>.jsonl`，`move` 行数 == `ply`，终局追加 `game_over`。
 - 无头吞吐 **7,067 plies/s**（200 步 / 0.015 s）。
 **Conclusion:** M2 达成；前端现在只需消费 §16 的 `state` 形状。
+
+### E006 — 阶段 3 前端实现与可自动化的验证
+
+**Purpose:** 确认页面接线正确、资源可达，并划定哪些能在无浏览器环境验证。
+**Setup:** `python -m unittest discover -s tests -t .`（55 用例）；`python -m chessarena serve --port 8766` + urllib 取 `/`、`/ui/*`、`/vendor/*`、`/state`；`websockets.sync` 收 hello；`Copy-Item app.js runs/app_check.mjs; node --check`。
+**Result:**
+- 55 个用例全绿（32 内核 + 19 服务 + 4 前端静态），6.2 s；连续跑 5 轮均绿。
+- `/` → `200 text/html`（3,484 B）；`/ui/app.js` 11,694 B；`/ui/style.css` 6,402 B；`/vendor/...min.js` 33,291 B；`/vendor/...cburnett.css` 11,548 B —— 全部 `200`。
+- `/state` 含 `human={w:true,b:false}`、`paused`、`speed`、`timeout`、`history_san`、`captured`；WS `hello` 带 `version`。
+- `node --check app.js` 通过（ESM 语法无误）。
+- 静态用例确认：`app.js` 引用的 13 个 id 全在 HTML 中；HTML 的 4 个 `/ui|/vendor` 资源都存在；HTML 类名都有 CSS 定义。
+- **失败**：本机 Edge 在沙箱内无法启动（`--version` 都无输出、exit 空/`0x80000003`），`--headless --dump-dom` 拿不到 DOM → 真实点击/动画无法自动验收。
+**Conclusion:** M3 的代码与接线已由测试覆盖，**浏览器人工验收仍待做**（P008）；这不阻塞阶段 4。
 
 ## 10. Failed Attempts / Things Not To Repeat
 
@@ -396,13 +429,20 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Impact:** 只在"服务端跑录像"场景出现；无头 `record=True` 不受影响。
 **Fix（阶段 3 一并做）:** `Session` 在 `new` 时新建 `Recorder`，旧文件补一条 `{"type":"aborted"}` 收尾。
 
+### P008 — M3 缺浏览器人工验收；本机 Edge 在沙箱内无法启动
+
+**Symptoms:** `msedge.exe --version` 无输出、退出码为空；`--headless=new --dump-dom` 产出 0 字节（`0x80000003`）。因此"点击/拖拽/动画/控制台零报错"无法自动验证。
+**Known facts:** HTTP 资源全部 200、`node --check app.js` 通过、选择器/资源/类名静态对账通过（E006）；协议层由 19 个集成用例覆盖。
+**Fix:** 由用户在本机浏览器打开 `http://127.0.0.1:8000/` 实测；把结果记入 §14 后再关闭本项。
+**附带发现:** 55 用例里出现过 2 次时序性失败（均与"AI 抢先应手"有关）：`test_move_when_ai_turn_is_409` 改为先 `pause` 再提交；`test_snapshot_has_ui_fields` 改用 human-vs-human。之后连续 6 轮全绿。
+
 ## 12. Current Working Set
 
-- **Files currently being changed:** 无（阶段 2 已收尾）；下一轮新建 `web/ui/` 三个静态文件。
-- **Functions/components in focus:** 阶段 3 的前端：`web/ui/index.html` + `app.js` + `style.css`，消费总表 §16 的 `state` 与 WS 消息。
-- **Immediate issue:** 无阻塞项；新页面要同时覆盖人机（本地 `human` 一方）与机机（全部 AI）两种会话。
-- **Current hypothesis:** 前端只做三件事——渲染 `state.fen`、发 `POST /move`、按 `hello/move/game_over` 刷新；合法点用 `moves_from` 的逻辑在前端重算（`chess.js` 不用，规则仍在 Python）。
-- **Next check:** 页面首屏加载 `vendor/chessground/dist/chessground.min.js`（ESM）在 `file://` 与 `http://` 下的差异；升变弹窗与「上一步」高亮的实现成本。
+- **Files currently being changed:** 无（阶段 3 代码已收尾，待浏览器验收）。
+- **Functions/components in focus:** 阶段 4 的 `builtin/`：L3 minimax2、L4 minimax3+alpha-beta、L5 Stockfish/UCI 适配。
+- **Immediate issue:** 无阻塞项；阶段 4 可与 M3 的人工验收并行。
+- **Current hypothesis:** 纯 Python 搜索在深度 3 + alpha-beta 下每步可控在 1s 内（需实测）；Stockfish 的 `UCI_LimitStrength`/`UCI_Elo` 已写进总表 §15，可直接复用。
+- **Next check:** 解压 Stockfish 并冒烟 `position`/`go movetime`；测量 L3/L4 每步耗时与节点数；确认 L4 是否需要着法排序才能进 1s。
 
 ## 13. Next Actions
 
@@ -412,19 +452,26 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - [x] `git init` + 首次提交 `a7da3df`。
 - [x] 内核：`RC`/`Result`/`Board`/`State`/`Game`/`Agent`/`Arena`/L1/L2/CLI；32 个内核用例。
 - [x] **M1**：`python -m chessarena play --white builtin:random --black builtin:greedy` 出完整 PGN。
-- [x] 总表 §16 推送协议；`chessarena/web/{session,server}.py`；`Client`；`record` 录像；14 个集成用例。
+- [x] 总表 §16 推送协议；`chessarena/web/{session,server}.py`；`Client`；`record` 录像；19 个集成用例。
 - [x] **M2**：`curl` 三端点、`Client` 同构、WS 广播、暂停/单步/调速；吞吐 7,067 plies/s。
 
-**阶段 3（当前，L）**
-- [ ] `web/ui/`：`index.html` 引 vendor 的 min.js + base/brown CSS；`app.js` 连 WS、发 `/move`、渲染快照。
-- [ ] 交互：选中高亮、合法点圆点、拖拽落子、非法弹回、升变四选一、上一步、将军红框、终局面板。
-- [ ] 右侧面板：双方名字/用时、SAN 记谱、吃子；底部：新对局/悔棋/认输/翻转/导出 PGN/复制 FEN。
-- [ ] 机机观战：速度选择、暂停/继续/单步（对接 `/control`）。
-- [ ] `serve` 挂静态目录；`GET /` 返回页面而不是 JSON。
-- [ ] **M3 验收**：浏览器里完成一局人机并正确判负；机机可观战；控制台零报错。
+**阶段 3（代码完成，待验收）**
+- [x] `web/ui/`：`index.html` 引 vendor 的 min.js + 三套 CSS；`app.js` 连 WS、发 `/move`、渲染快照。
+- [x] 交互：合法点、拖拽落子、非法重绘、升变四选一、上一步、将军高亮、终局弹层。
+- [x] 侧栏：双方名字与"人/AI"标记、SAN 记谱、吃子；底栏：新对局/悔棋/认输/翻转/导出 PGN/复制 FEN。
+- [x] 机机观战：速度 0.25–20×、暂停/继续/单步（`/control`）；模式按钮切换人机/机机。
+- [x] `serve` 挂 `/ui` 与 `/vendor`；`GET /` 返回页面。
+- [ ] **M3 人工验收**：浏览器里完成一局人机并正确判负；机机可观战；控制台零报错（P008）。
 
-**阶段 4+（排期待启动）**
-- [ ] L3/L4 + Stockfish 解压与 UCI 适配（M4，可与阶段 3 并行）。
+**阶段 4（下一步，M）**
+- [ ] 解压 Stockfish 到 `thirdparty/stockfish/`，核对 exe 可执行与版本。
+- [ ] `chessarena/engines/uci.py`：按总表 §15.2 实现 UCI 驱动（`uci`/`isready`/`position fen`/`go movetime`/`bestmove`，超时与 `quit`）。
+- [ ] `builtin/minimax2.py`（L3，深度 2 + 子力评估）与 `builtin/minimax3.py`（L4，深度 3 + alpha-beta）。
+- [ ] `builtin/stockfish.py`（L5，`UCI_Elo` 可配）；`builtins()` 返回五档；页面下拉框可切换。
+- [ ] 实测每步耗时与节点数，写入 §9 与说明书；L4 若超 1s 先加着法排序（MVV-LVA）。
+- [ ] **M4 验收**：五档可选、Stockfish 冒烟对局通过。
+
+**阶段 5+（排期待启动）**
 - [ ] 联赛 + ELO + 报告（M5）。
 - [ ] 教学包：examples / assignments / requirements.txt / start.bat / 调用约定（M6）。
 
@@ -437,10 +484,11 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - [x] **文档零冲突**：P003/P005 关闭；`docs/` 内 `place(`/`commit(`/`"white"`/`409`/`on_opponent_move(` 零命中。
 - [x] 规则内核实现与单元测试：32 用例全绿（E004）。
 - [x] 端到端：命令行一局输出 PGN（M1）。
-- [x] HTTP 端点 + `Client` 同构（M2，14 个集成用例，E005）。
-- [x] WebSocket 广播、暂停/单步/调速、录像 JSONL。
+- [x] HTTP 端点 + `Client` 同构（M2，19 个集成用例，E005）。
+- [x] WebSocket 广播、暂停/单步/调速/悔棋/认输/换模式、录像 JSONL。
+- [x] 静态页与资源 200、JS 语法通过、选择器/资源/类名对账（E006，4 个前端静态用例）。
+- [ ] **浏览器人工验收**：点击/拖拽/升变/动画/控制台（M3，见 P008）。
 - [ ] 无头吞吐 ≥1000 的**严格回归**门槛（实测 7,067；测试里只断言 ≥200，避免慢机器误报）。
-- [ ] 页面联调：人机 + 机机（M3）。
 - [ ] Stockfish 可执行性与五档耗时（M4）。
 - [ ] 联赛一条命令出 ELO（M5）。
 
@@ -449,24 +497,25 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - **OS:** Windows；shell 为 PowerShell（`pwsh`）。
 - **Python:** 3.12.5；pip 26.2.1；已装 `chess 1.11.2`、`fastapi 0.159.1`、`uvicorn 0.54.0`、`PyYAML 6.0.3`、`starlette 1.9.0`、`websockets 17.3`；**未装** `pytest`、`httpx`。
 - **Node:** v24.16.0；npm 可用；**pnpm 不可用**（本方案不需要）。
-- **Git:** `C:\Program Files\Git\cmd\git.exe` 可用；身份 `diego3893 <diegozcx@foxmail.com>`；提交 `a7da3df`（M0）、`8eeaab2`（阶段 1）。
+- **Git:** `C:\Program Files\Git\cmd\git.exe` 可用；身份 `diego3893 <diegozcx@foxmail.com>`；提交 `a7da3df`（M0）、`8eeaab2`（阶段 1）、`b4a56b5`（阶段 2）。
 - **项目根:** `C:\Users\30130\Desktop\workstation\ChessArena`（本会话沙箱工作区，可直接写）。
 - **旧暂存区:** `C:\Users\30130\Documents\deepseek-harness\default-workspace`（`vendor/` 已迁出；`.tgz` 仍在此）。
 - **编码:** Python stdout `gbk` → 验证中文前 `$env:PYTHONIOENCODING='utf-8'`；CLI 已自带 reconfigure；文件一律 UTF-8。
-- **复现命令:** `python -m pip install chess fastapi "uvicorn[standard]" pyyaml`；测试 `python -m unittest discover -s tests -t .`；跑一局 `python -m chessarena play`；起服务 `python -m chessarena serve --port 8000`。
+- **复现命令:** `python -m pip install chess fastapi "uvicorn[standard]" pyyaml`；测试 `python -m unittest discover -s tests -t .`；跑一局 `python -m chessarena play`；起服务 `python -m chessarena serve --port 8000`（浏览器开 `http://127.0.0.1:8000/`）。
 - **沙箱注意:**
   1. 用中文字面量做路径匹配可能编码错乱，**用通配符枚举 + `Get-FileHash`** 比对。
   2. `tempfile.TemporaryDirectory()` 在工作区外的系统 temp 里**清理会被拒**（WinError 5）；测试临时目录放工作区内（如 `runs/test-*`）并 `shutil.rmtree(ignore_errors=True)`。
   3. 后台服务用受管 job 起，别用 `Start-Process`；验证完 `job_kill`。
+  4. **浏览器启动被沙箱拦截**：`msedge.exe` 无输出、`--dump-dom` 0 字节；前端验收只能人工做（P008）。
 
 ## 16. Context Handoff Summary
 
 1. **在做什么**：为一门研讨课搭建单机国际象棋 AI 平台；学生写 AI，平台负责裁判、UI、基线对手与联赛。
-2. **为什么这样做**：国际象棋规则库成熟 → python-chess 保正确性；chessground 预构建包保 UI 且零构建；"单一写入口 submit + 返回码重试"降低学生出错成本。
-3. **已完成**：阶段 0（文档收敛、vendor、git）、阶段 1（内核 + L1/L2 + CLI）、阶段 2（HTTP/WS/Client/录像）；46 个测试全绿，M0–M2 均达成；Stockfish 未解压；前端尚未开始。
-4. **最大剩余问题**：没有任何阻塞；只剩工作量——前端页面（阶段 3）、更强 AI（阶段 4）、联赛（阶段 5）、教学包（阶段 6）。
-5. **已排除**：npm 构建 chessground（F001）；SAN 与 `drop(x,y,color)`（D005）；联机（D008）；`move()` 别名（D003）；关键词式文档校验（F002）；旧版 python-chess 名（F003）。
-6. **第一个下一步**：阶段 3 —— 建 `web/ui/`（`index.html` 引 vendor min.js + CSS）与 `app.js`（WS 收 `state`/`move`/`game_over`，`POST /move` 落子），以 M3（浏览器人机一局 + 机机观战）验收。
+2. **为什么这样做**：国际象棋规则库成熟 → python-chess 保正确性；chessground 预构建包保 UI 且零构建；"单一写入口 submit + 返回码重试"降低学生出错成本；前端不含棋规，服务端算 SAN/吃子/合法性。
+3. **已完成**：阶段 0（文档收敛、vendor、git）、1（内核 + L1/L2 + CLI）、2（HTTP/WS/Client/录像）、3 代码（页面 + 控制 + 静态检查）；**55 个测试全绿**，M0–M2 达成，M3 待人工验收；Stockfish 未解压。
+4. **最大剩余问题**：没有阻塞；只剩工作量——浏览器验收（M3）、L3–L5 与 UCI（阶段 4）、联赛（阶段 5）、教学包（阶段 6）。
+5. **已排除**：npm 构建 chessground（F001）；SAN 与 `drop(x,y,color)`（D005）；联机（D008）；`move()` 别名（D003）；关键词式文档校验（F002）；旧版 python-chess 名（F003）；前端自己判规则（D019）。
+6. **第一个下一步**：阶段 4 —— 解压 Stockfish、写 `chessarena/engines/uci.py` 与 L3/L4/L5 三档，以 M4（五档可选 + Stockfish 冒烟）验收；同时请用户开一次页面完成 M3 人工验收。
 
 ## 17. Decision / Progress Log
 
@@ -479,3 +528,4 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 01:4x — 用户拍板：先修文档再写内核、接受 GPL、初始化 git（D014）。阶段 0 完成：P003 九处改写、总表 §15 外部对手协议、vendor 迁入、`a7da3df` 首次提交。`
 `2026-10-23 01:5x — 阶段 1 完成（M1）：`chessarena/` 内核 15 模块 + L1/L2 + CLI；32 个 unittest 全绿；random vs greedy 一局 106 半步、0.03 s；补 D015（tuple）、D016（超时策略）、P006（人类不消耗重试）。`
 `2026-10-23 02:1x — 阶段 2 完成（M2）：总表 §16 推送协议（快照形状 + 400/409/410 + 7 种 WS 消息）；`web/session.py` 驱动线程 + 广播；FastAPI 7 端点；`Client`（stdlib）；`record` JSONL；14 个集成用例，46 个测试全绿，吞吐 7,067 plies/s；补 D017（单进程一局/单一快照）、D018（服务端驱动 AI）。`
+`2026-10-23 02:5x — 阶段 3 代码完成：`web/ui/`（页 676 行 JS/CSS/HTML）零构建引 chessground；服务端补 `history_san`/`captured`/`human`/`paused`/`speed`/`timeout`，`/control` 增 `undo`/`resign`/带选手的 `new`；静态页与 4 个接线用例；55 个测试全绿；补 D019（前端不含棋规）、D020（非法重绘）；P008（Edge 在沙箱内起不来，M3 待人工验收）。`

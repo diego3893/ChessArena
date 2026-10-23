@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChessArena · 国际象棋 AI 对战场</title>
+  <link rel="stylesheet" href="/vendor/chessground/assets/chessground.base.css">
+  <link rel="stylesheet" href="/vendor/chessground/assets/chessground.brown.css">
+  <link rel="stylesheet" href="/vendor/chessground/assets/chessground.cburnett.css">
+  <link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">♞</span>ChessArena<small id="version"></small></div>
+    <nav class="modes" id="modes">
+      <button data-mode="hva" class="active">人机</button>
+      <button data-mode="ava">机机</button>
+    </nav>
+    <div class="conn" id="conn">连接中…</div>
+  </header>
+
+  <main class="layout">
+    <section class="board-area">
+      <div class="board-shell"><div id="board"></div></div>
+      <div class="turnbar">
+        <span class="dot" id="turn-dot"></span>
+        <span id="turn-text">白方走棋</span>
+        <span class="muted" id="ply-text">第 0 步</span>
+        <span class="muted" id="limit-text">每步限时 3.0s</span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="players">
+        <div class="player" id="player-black">
+          <span class="side-dot black"></span>
+          <span class="pname">黑方</span>
+          <span class="badge">AI</span>
+        </div>
+        <div class="player" id="player-white">
+          <span class="side-dot white"></span>
+          <span class="pname">白方</span>
+          <span class="badge">AI</span>
+        </div>
+      </div>
+      <div class="moves-box">
+        <div class="box-title">着法</div>
+        <ol class="moves" id="moves"></ol>
+      </div>
+      <div class="captures">
+        <div class="box-title">吃子</div>
+        <div id="captures" class="cap-row">—</div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="controls">
+    <button id="btn-new">新对局</button>
+    <button id="btn-undo">悔棋</button>
+    <button id="btn-resign">认输</button>
+    <button id="btn-flip">翻转</button>
+    <button id="btn-pgn">导出 PGN</button>
+    <button id="btn-fen">复制 FEN</button>
+    <div class="spacer"></div>
+    <div class="speed" id="speed-group" hidden>
+      <span class="muted">速度</span>
+      <button data-speed="0.25">0.25×</button>
+      <button data-speed="1">1×</button>
+      <button data-speed="4">4×</button>
+      <button data-speed="20">瞬间</button>
+      <button id="btn-pause">暂停</button>
+      <button id="btn-step">单步</button>
+    </div>
+  </footer>
+
+  <div id="promo" class="overlay hidden">
+    <div class="dialog">
+      <div class="dialog-title">选择升变</div>
+      <div class="promo-buttons">
+        <button data-piece="q">后</button>
+        <button data-piece="r">车</button>
+        <button data-piece="b">象</button>
+        <button data-piece="n">马</button>
+      </div>
+      <button id="promo-cancel" class="ghost">取消</button>
+    </div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="dialog">
+      <div class="dialog-title" id="over-title">对局结束</div>
+      <div class="dialog-sub" id="over-sub"></div>
+      <button id="btn-again">再来一局</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="/ui/app.js"></script>
+</body>
+</html>
