@@ -150,8 +150,8 @@ config.yaml       运行配置
 
 ```powershell
 python -m unittest discover -s tests -t .
-# 可选：本地已安装Node时，验证播放器时钟与定位逻辑；运行平台无需Node
-node --test tests/replay.test.mjs
+# 可选：本地已安装Node时，验证播放器与页面异步逻辑；运行平台无需Node
+node --test tests/replay.test.mjs tests/ui_runtime.test.mjs
 ```
 
 ## 许可证

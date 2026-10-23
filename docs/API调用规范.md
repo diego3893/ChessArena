@@ -272,7 +272,7 @@ finally:
 | `POST /reset`，`{"fen":...}`或`{}` | 清空历史并重置；返回result/state封装；对应`Client.reset(fen=None)` |
 | `POST /control`，`{"action":"pause"}` | 暂停 |
 | action为`resume/step/undo/resign` | 继续、驱动一步、悔棋、认输 |
-| `{"action":"speed","speed":2.0}` | 设置展示速度，最小0.05 |
+| `{"action":"speed","speed":2.0}` | 设置展示速度，最小0.05；拒绝NaN、无穷大、布尔值及不可转换为数字的参数，失败不改变会话；省略或null保持原速度 |
 | `{"action":"new","white":"agents/A.py","black":"agents/B.py"}` | 装配新选手和新对局 |
 
 `/control`成功返回`{"type":"control","paused":...,"speed":...,"state":...}`，不是Result封装；未知动作或开局失败返回HTTP400及`{"error":...}`。`/reset`保留原game_id，`new`通常产生新game_id，因此跟踪重置还需看revision和起始状态。
@@ -320,6 +320,8 @@ WebSocket仅用于推送与ping，不接受下棋命令；落子仍走HTTP。若
 `frames[0].last_move`为null；`captured.w/b`分别记录被吃掉的白子/黑子符号，不是吃子方。记录文件只能来自`Arena.runs_dir`（默认`runs/`）或仓库`results/`目录，解析路径后检查目录边界，仅接受`.pgn`，禁止越界读取。接口不写入文件，不返回合法动作列表，不修改或控制实时对局。
 
 单份PGN最多2MiB、100盘、10000个半步（含变例），仅接受标准国际象棋、有效FEN与合法着法；不支持空着。格式、路径、读取或解析失败返回HTTP400及`{"error":"原因"}`，请求JSON类型不符由FastAPI返回HTTP422。只生成主线局面，不在平台自动三次重复/50步处停止；零着法记录可以导入。
+
+标签允许在同一行紧凑排列；同一盘中的标签名不得重复。非`*`的Result标签必须与正文结果一致，同一盘只允许一个正文结果标记，标记之后不能再有着法。Result为`*`时，可以由正文的明确结果补全。
 
 ## 7 平台调用学生HTTP服务与UCI
 
