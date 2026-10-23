@@ -15,3 +15,7 @@ agents/weights/*.pth
 thirdparty/chessground/
 thirdparty/stockfish/
 thirdparty/*.zip
+
+# 本地上下文以及过期文件
+docs/legacy/
+PROJECT_CONTEXT.md
