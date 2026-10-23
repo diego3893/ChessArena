@@ -297,6 +297,30 @@ finally:
 
 WebSocket仅用于推送与ping，不接受下棋命令；落子仍走HTTP。若处理丢包、重连、乱序，优先以最新完整state校准，不只依靠增量move。
 
+### 6.3 网页播放器接口
+
+以下接口供教师界面回放使用，独立于实时裁判，不是模型决策或动作空间接口：
+
+| 接口 | 请求与返回 |
+|---|---|
+| `POST /replay/parse` | JSON：`{"pgn":"1. e4 e5 *"}`；解析UTF-8文件文本，成功返回`{"games":[...]}` |
+| `GET /replay/records` | 返回`{"records":[{"id":"runs/A-vs-B.pgn","size":123,"modified":1720000000.0}]}`；size为字节，modified为Unix时间戳；按修改时间降序，最多500项 |
+| `GET /replay/records/{record_id}` | 例如`/replay/records/runs/A-vs-B.pgn`，读取该记录并返回与parse相同的结构；路径各段需URL编码 |
+
+每盘`game`包含：
+
+| 字段 | 含义 |
+|---|---|
+| `headers` | PGN标签字典，包括White、Black、Event等 |
+| `result` | PGN记载的`1-0/0-1/1/2-1/2/*`，不根据实时平台的和棋政策重算 |
+| `moves` | 主线着法数组；每项含`uci/san/side/fullmove_number`；side为w/b |
+| `frames` | 初始局面及每步之后的局面，长度为`moves.length+1`；每项含完整`fen`、`turn`、`is_check`、`last_move`、`captured` |
+| `pgn` | 当前整盘的规范化PGN，供导出使用，包含原有注释与变例 |
+
+`frames[0].last_move`为null；`captured.w/b`分别记录被吃掉的白子/黑子符号，不是吃子方。记录文件只能来自`Arena.runs_dir`（默认`runs/`）或仓库`results/`目录，解析路径后检查目录边界，仅接受`.pgn`，禁止越界读取。接口不写入文件，不返回合法动作列表，不修改或控制实时对局。
+
+单份PGN最多2MiB、100盘、10000个半步（含变例），仅接受标准国际象棋、有效FEN与合法着法；不支持空着。格式、路径、读取或解析失败返回HTTP400及`{"error":"原因"}`，请求JSON类型不符由FastAPI返回HTTP422。只生成主线局面，不在平台自动三次重复/50步处停止；零着法记录可以导入。
+
 ## 7 平台调用学生HTTP服务与UCI
 
 这与第5节的主动`api`客户端是两种方向。

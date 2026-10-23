@@ -115,6 +115,8 @@ python -m chessarena league --players agents/A.py,agents/B.py --rounds 1 --openi
 
 联赛输出HTML报告、比赛记录、ELO估计和PGN。断点续跑须使用相同的`--out`目录及比赛设置；更换模型后应使用新目录。
 
+网页顶部可切换“实时对战／播放器”。在终端保存PGN后，进入播放器选择本地文件，或直接从`runs/`、`results/`的记录列表载入。支持多盘PGN、播放/暂停、逐步、进度定位、点击着法跳转和倍速；回放只读，实时对局继续运行。完整流程见[播放器使用说明](docs/平台使用说明.md#32-播放器)。
+
 比赛配置位于`config.yaml`。自动AI默认每步3秒，首次失败后可再重试3次，全部尝试共享时间预算。主动HTTP的`api`模式目前不强制相同的步时与重试判负。
 
 棋子走法采用普通国际象棋规则；平台会自动判三次重复和50步和棋。半步上限、未完成比赛及部分联赛统计也有特定处理，正式评分前应阅读[平台象棋规则](docs/平台象棋规则.md)。
@@ -148,6 +150,8 @@ config.yaml       运行配置
 
 ```powershell
 python -m unittest discover -s tests -t .
+# 可选：本地已安装Node时，验证播放器时钟与定位逻辑；运行平台无需Node
+node --test tests/replay.test.mjs
 ```
 
 ## 许可证
