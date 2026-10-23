@@ -5,7 +5,7 @@ import unittest
 
 import chess
 
-import chessarena
+from chessarena import Arena
 from chessarena.builtin import available, make_builtin
 from chessarena.builtin.evaluation import evaluate
 from chessarena.core.state import State
@@ -26,7 +26,7 @@ class TestRegistry(unittest.TestCase):
         self.assertEqual(available(), ["random", "greedy", "minimax2", "minimax3", "stockfish"])
 
     def test_arena_lists_five(self):
-        arena = chessarena.Arena(live=False, config="__no_such_config__.yaml")
+        arena = Arena(live=False, config="__no_such_config__.yaml")
         try:
             self.assertEqual(arena.builtins(), available())
         finally:
@@ -94,10 +94,49 @@ class TestStockfish(unittest.TestCase):
     def test_agent_defaults(self):
         agent = make_builtin("stockfish")
         try:
-            self.assertEqual(agent.elo, 1600)
-            self.assertGreater(agent.movetime, 0)
+            self.assertEqual(agent.elo, 2600)
+            self.assertAlmostEqual(agent.movetime, 1.0)
         finally:
             agent.close()
+
+    def test_config_overrides_default(self):
+        agent = make_builtin("stockfish", stockfish={"elo": 1800, "movetime": 0.5})
+        try:
+            self.assertEqual(agent.elo, 1800)
+            self.assertAlmostEqual(agent.movetime, 0.5)
+        finally:
+            agent.close()
+
+    def test_env_overrides_config(self):
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"CHESSARENA_STOCKFISH_ELO": "2600",
+                                          "CHESSARENA_STOCKFISH_MOVETIME": "0.3"}):
+            agent = make_builtin("stockfish", stockfish={"elo": 1800, "movetime": 0.5})
+            try:
+                self.assertEqual(agent.elo, 2600)
+                self.assertAlmostEqual(agent.movetime, 0.3)
+            finally:
+                agent.close()
+
+    def test_arena_passes_config(self):
+        import shutil
+        from pathlib import Path
+
+        base = Path("runs") / "test-sf-config"
+        shutil.rmtree(base, ignore_errors=True)
+        base.mkdir(parents=True)
+        cfg = base / "config.yaml"
+        cfg.write_text("stockfish:\n  elo: 2500\n  movetime: 0.4\n", encoding="utf-8")
+        arena = Arena(live=False, config=cfg)
+        try:
+            game = arena.new_game(white="builtin:random", black="builtin:stockfish")
+            self.assertEqual(game.black.elo, 2500)
+            self.assertAlmostEqual(game.black.movetime, 0.4)
+        finally:
+            arena.close()
+            shutil.rmtree(base, ignore_errors=True)
 
     def test_engine_returns_legal_move(self):
         engine = UCIEngine(movetime=0.2)

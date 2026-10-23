@@ -167,7 +167,7 @@ def scan_agents(directory, *, seed=0):
     return results
 
 
-def resolve_player(spec, *, seed=0):
+def resolve_player(spec, *, seed=0, stockfish=None):
     """把 ``white=`` / ``black=`` 的写法解析成 ``Agent`` 实例。"""
     if isinstance(spec, Agent):
         spec.seed = getattr(spec, "seed", 0) or seed
@@ -186,7 +186,7 @@ def resolve_player(spec, *, seed=0):
         from ..builtin import make_builtin
 
         try:
-            return make_builtin(low.split(":", 1)[1], seed=seed)
+            return make_builtin(low.split(":", 1)[1], seed=seed, stockfish=stockfish)
         except KeyError as exc:
             raise AgentLoadError(str(exc)) from exc
 

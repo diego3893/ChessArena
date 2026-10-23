@@ -1,7 +1,15 @@
 """L5 · Stockfish（经 UCI 子进程，可限制 ELO）。
 
-它是"打不过"的那一档：默认限到 1600 分（``UCI_LimitStrength`` + ``UCI_Elo``），
-调高到 2000+ 就是认真下也赢不了。学生可以用它来标定自己的棋力。
+它是"打不过"的那一档：默认限到 **2600** 分（``UCI_LimitStrength`` + ``UCI_Elo``），
+每步 1.0 秒。想温柔一点就调低（最低 1320），想更狠就调高（最高 3190）：
+
+| 位置 | 写法 |
+|---|---|
+| `config.yaml` | `stockfish: {elo: 2600, movetime: 1.0}` |
+| 环境变量 | `CHESSARENA_STOCKFISH_ELO=1600`、`CHESSARENA_STOCKFISH_MOVETIME=0.5` |
+| 代码 | `StockfishAgent(elo=1800, movetime=0.8)` |
+
+环境变量优先于 `config.yaml`，方便课堂临时调档。
 """
 
 import os
@@ -9,14 +17,20 @@ import os
 from ..core.agent import Agent
 from ..engines.uci import UCIEngine
 
+DEFAULT_ELO = 2600
+DEFAULT_MOVETIME = 1.0
+
 
 class StockfishAgent(Agent):
     name = "Stockfish (L5)"
 
     def __init__(self, path=None, *, elo=None, movetime=None, threads=1, hash_mb=64):
         super().__init__()
-        self.elo = int(elo if elo is not None else os.environ.get("CHESSARENA_STOCKFISH_ELO", 1600))
-        self.movetime = float(movetime if movetime is not None else 0.6)
+        elo = elo if elo is not None else os.environ.get("CHESSARENA_STOCKFISH_ELO", DEFAULT_ELO)
+        movetime = (movetime if movetime is not None
+                    else os.environ.get("CHESSARENA_STOCKFISH_MOVETIME", DEFAULT_MOVETIME))
+        self.elo = int(elo)
+        self.movetime = float(movetime)
         options = {
             "Threads": int(threads),
             "Hash": int(hash_mb),

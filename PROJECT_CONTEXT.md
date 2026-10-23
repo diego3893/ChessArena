@@ -41,15 +41,16 @@
 
 **Confirmed（2026-10-23 10:0x，阶段 5、6 完成，仅剩浏览器人工验收）：**
 
-- **可运行**：`chessarena/` 34 个模块 + 前端 700 行；平台共 43 个 `.py` / 4,811 行（含 examples/assignments/tests）；`tests/` **97 个用例全绿**（Stockfish 引擎用例在沙箱内 skip）。
+- **可运行**：`chessarena/` 34 个模块 + 前端 700 行；平台共 43 个 `.py` / 4,811 行（含 examples/assignments/tests）；`tests/` **100 个用例全绿**（Stockfish 引擎用例在沙箱内 skip）。
 - **交付面**：`play` / `serve`（含模型下拉）/ `test`（自测）/ `league`（ELO+HTML）/ `replay`（终端回放）；五档 AI + 学生 `agents/` + `agents.json` 的外部 UCI/HTTP 对手。
 - **内核**：五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN + `history_san`/`captured`；`TransientError`（外部对手可重试）。
 - **服务**：`web/session.py`（驱动线程 + 广播 + 暂停/单步/调速/悔棋/认输/换人 + 心跳 + 自愈）、`web/server.py`（9 个 HTTP 端点 + `WS /ws` + 静态页）、`Client`、录像 JSONL。
 - **前端**：`web/ui/*` 零构建；白方/黑方模型下拉（人类 / L1–L5 / `agents/*.py` / `uci:…` / `http:…`）+ 开局；落子/升变/记谱/吃子/悔棋/认输/翻转/导出 PGN/调速与暂停单步/自动校准。
 - **联赛**：`chessarena/league.py` —— 单循环、随机开局、`max_concurrent` 多进程（=1 时本进程）、ELO（400 分制 K=32）、非法率、平均每步、HTML 报告 + 每局 PGN、断点续跑。
 - **教学包**：`agents/examples/`（random / minimax αβ / HTTP client 三个样例）、`assignments/`（eval & minimax 骨架 + `grade.py`）、`config.yaml`、`start.bat`、`requirements.txt`、`README.md`。
-- **实测**：联赛 random+greedy 2 局 0.1s、报告与 PGN 正常；`grade.py` 4 局 0.5s；97 用例 13.9s。
-- **版本控制**：`a7da3df` → `8eeaab2` → `b4a56b5` → `3a5e2c9` → `661522a` → `4effeef` → `e6a70b0`；本轮（阶段 5+6）待提交。
+- **L5 强度**：默认 `UCI_Elo=2600` + 每步 1.0s（`config.yaml` 的 `stockfish.elo/movetime` 或环境变量可调）。实测 2600 对 L4 **42 半步将杀**，2200 对随机 46 半步将杀。
+- **实测**：联赛 random+greedy 2 局 0.1s、报告与 PGN 正常；`grade.py` 4 局 0.5s；100 用例 12.1s。
+- **版本控制**：`a7da3df` → `8eeaab2` → `b4a56b5` → `3a5e2c9` → `661522a` → `4effeef` → `e6a70b0` → `2f3fc7f` → `4666e4e`；本轮（L5 调强）待提交。
 
 **Current assessment：**
 
@@ -123,7 +124,7 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 | `chessarena/builtin/evaluation.py` | 共用评估：子力 + 兵推进 + 极简位置项（约 55 行） | 学生改这里的价值表就能玩 |
 | `chessarena/builtin/minimax2.py` | L3：negamax 深度 2（无剪枝，约 45 行） | 教材：递归骨架 |
 | `chessarena/builtin/minimax3.py` | L4：αβ + MVV-LVA + 迭代加深（0.85s 预算，约 95 行） | 实测 ≤0.86s/步 |
-| `chessarena/builtin/stockfish.py` | L5：`UCI_LimitStrength`/`UCI_Elo`，默认 1600、0.6s | ELO 用 `CHESSARENA_STOCKFISH_ELO` 覆盖 |
+| `chessarena/builtin/stockfish.py` | L5：`UCI_LimitStrength`/`UCI_Elo`，默认 **2600**、1.0s | `config.yaml` 的 `stockfish.*` 或 `CHESSARENA_STOCKFISH_ELO/_MOVETIME` 覆盖（环境变量优先） |
 | `chessarena/engines/uci.py` | UCI 适配：`SimpleEngine` 启停、选项、`best_move(fen)`、统一 `EngineError` | 与总表 §15.2 同一协议 |
 | `chessarena/league.py` | 循环赛编排、进程池并发、ELO、非法率、HTML 报告、断点续跑 | `max_concurrent=1` 时本进程执行（沙箱可测） |
 | `chessarena/cli.py` | `play` / `serve` / `test` / `league` / `replay` | 全部可用 |
@@ -337,6 +338,14 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Implication:** 新写外部适配器时，把"可重试"和"配置错"分开抛；不要把网络异常伪装成返回值。
 **Status:** Active
 
+### D025 — L5 默认 `UCI_Elo=2600`、1.0s，配置优先级 环境变量 > config > 默认
+
+**Decision:** `StockfishAgent` 默认 2600 / 1.0s；`config.yaml` 增加 `stockfish.{elo,movetime,path}`；环境变量 `CHESSARENA_STOCKFISH_{ELO,MOVETIME}` 与 `CHESSARENA_STOCKFISH` 覆盖配置。
+**Reason:** 1600 档会被随机棋手拖成三次重复和棋（E010）；课堂需要一个"认真下打不过"的档，同时保留按班调档的旋钮。
+**Evidence:** E010 —— 2600 对 L4 42 半步将杀；2200 对随机 46 半步将杀；`test_arena_passes_config` / `test_env_overrides_config`。
+**Implication:** 想温柔一点就把 `stockfish.elo` 调到 1600–1800；不要在代码里硬编码强度。
+**Status:** Active
+
 ## 9. Experiments / Results
 
 ### E001 — chessground 预构建产物可得性与完整性
@@ -438,6 +447,17 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - 文件齐备：`config.yaml`、`start.bat`、`requirements.txt`、`README.md`、`assignments/*`。
 - **未验证**：真·新机器上 `pip install -r requirements.txt` 的联网过程。
 **Conclusion:** M6 代码层面完成，只剩用户的实机试用。
+
+### E010 — L5 强度调档（用户要求"调强一点"）
+
+**Purpose:** 1600 档会被随机棋手拖成三次重复和棋（用户实测），确认更合适的默认强度。
+**Setup:** `random vs Stockfish(2200, 1.0s)`、`minimax3 vs Stockfish(2200/2600, 1.0s)`；`config.yaml` 的 `stockfish:` 段经 `Arena` → `make_builtin` 生效。
+**Result:**
+- 2200 vs random：**46 半步将杀**，21.5s（不再出现重复和棋）。
+- 2200 vs L4：40 半步时子力 `21:23`（+2，未分胜负）——不够"打不过"。
+- 2600 vs L4：**42 半步将杀**，决定性。
+- 新增配置链：`config.yaml` 的 `stockfish.elo/movetime/path` 生效；环境变量 `CHESSARENA_STOCKFISH_*` 优先。
+**Conclusion:** 默认改为 **2600 / 1.0s**（`UCI_Elo` 仍可在 1320–3190 间调）；单步含启动约 1.3s，仍在 3s 限时内。
 
 ## 10. Failed Attempts / Things Not To Repeat
 
@@ -640,4 +660,5 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 03:2x — 阶段 4 完成（M4）：解压 Stockfish 19；`engines/uci.py` + 五档（L3 深度2、L4 αβ 迭代加深 0.85s、L5 `UCI_Elo`）；L3 ≤0.03s、L4 ≤0.86s、找到 Qxf7#；66 个测试全绿（引擎用例沙箱内 skip）；补 D021（预算制）、D022（UCI 交给 python-chess）、P009（沙箱禁管道）。`
 `2026-10-23 04:0x — 用户实测"页面卡住"（P010）：无法复现服务端停步，判定为客户端漏消息无兜底 + 驱动线程可能静默死亡。修复：WS heartbeat（3s 全量快照）、客户端 5s HTTP 校准与旧快照丢弃、驱动 try/except + 空转检测 + 2s 自动重启、`GET /debug`、AI 回合"思考中…"；新增 TestResilience 4 用例，70 个测试 3 轮全绿。`
 `2026-10-23 09:2x — 用户要求"UI 里选模型"：顶部加白方/黑方两个下拉（人类 / L1–L5 / 未来 agents）+ 开局按钮，改选即重开；新增 `GET /players` 与快照 `players` 字段；`Session.control("new")` 先建后换（非法写法 400 且原局不变），`resolve_player` 把 KeyError 转 `AgentLoadError`；新增 5 个 players 用例，75 个测试全绿。`
+`2026-10-23 10:5x — 用户要求 L5 调强：默认 `UCI_Elo` 1600→2600、每步 0.6→1.0s，并接上 `config.yaml` 的 `stockfish: {elo,movetime,path}`（环境变量优先）。实测 2600 对 L4 42 半步将杀、2200 对随机 46 半步将杀；E010 记录；100 测试全绿。`
 `2026-10-23 10:0x — 阶段 5、6 完成：`league.py`（编排/进程池/ELO/非法率/HTML+PGN/续跑）、`core/external.py`（agents.json 的 UCI/HTTP 对手 + TransientError）、CLI `test`/`league`/`replay`、`agents/examples` 三样例、`assignments` 骨架 + `grade.py`、`config.yaml`/`start.bat`/`requirements.txt`/`README.md`；`serve` 支持 `--timeout/--max-retries` 并从 config 取 host/port；97 个测试全绿；补 D023（联赛并发模型）、D024（EngineError vs TransientError）、E008/E009。`

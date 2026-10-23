@@ -93,7 +93,7 @@ python -m chessarena serve
 | L2 | 贪心 | 每步吃价值最高的子，否则随机 | 会白吃子，但常自己送子 |
 | L3 | minimax 深度 2 | 纯 minimax + 子力评估 | 像刚学棋的人 |
 | L4 | minimax 深度 3 + alpha-beta | 同样评估函数，加了剪枝 | 能看出两步杀，班级中位数 |
-| L5 | Stockfish | 限制到 1320–3190 分（`UCI_Elo`，默认 1600；每步 0.6s） | 认真下打不过 |
+| L5 | Stockfish | 限制到 1320–3190 分（`UCI_Elo`，默认 **2600**；每步 1.0s） | 认真下打不过 |
 
 > **这 5 档不是黑盒**：L1–L4 每一档都是 `builtin/` 目录下一个 50–150 行的独立文件。
 > 这就是给学生的第一份教材——"L4 比 L3 只多了 alpha-beta 十几行，但快 5 倍"。
@@ -382,6 +382,10 @@ league:
   max_concurrent: 4      # 并发跑几盘（多进程，吃满 CPU）
 
 builtin: [random, greedy, minimax2, minimax3, stockfish]
+
+stockfish:                 # L5 强度（也可用环境变量临时覆盖）
+  elo: 2600                # 1320–3190；1600≈初学者，2600 认真下打不过
+  movetime: 1.0            # 每步思考秒数（要小于 game.timeout）
 ```
 
 > 键的完整语义见《API总表》§13。v1 不提供整盘时间控制（`300+2` 那种），只有每步 `timeout`。
@@ -463,7 +467,7 @@ A：先看状态栏：显示"黑方思考中…"说明服务端正在算，等 3
 A：`python -m chessarena serve --timeout 10`，或改 `config.yaml` 的 `game.timeout`。但**别只为自己的 AI 调**——联赛里所有 AI 同一标准。
 
 **Q：L5 的 Stockfish 打不开？**
-A：引擎已随包放在 `thirdparty/stockfish/stockfish-windows-x86-64-universal.exe`（zip 解压即可）。找不到时按顺序取：环境变量 `CHESSARENA_STOCKFISH` → 该默认路径。棋力用 `CHESSARENA_STOCKFISH_ELO=1800`（1320–3190），每步用时用 `CHESSARENA_STOCKFISH_MOVETIME=0.6`。不想用就把 `builtin:stockfish` 从对局双方里换掉。
+A：引擎已随包放在 `thirdparty/stockfish/stockfish-windows-x86-64-universal.exe`（zip 解压即可）。找不到时按顺序取：环境变量 `CHESSARENA_STOCKFISH` → `config.yaml` 的 `stockfish.path` → 默认路径。棋力默认 2600，可在 `config.yaml` 的 `stockfish.elo`（1320–3190）或环境变量 `CHESSARENA_STOCKFISH_ELO` 调；每步用时用 `stockfish.movetime` / `CHESSARENA_STOCKFISH_MOVETIME`。
 
 **Q：前端能改吗？**
 A：`chessarena/web/ui/` 是三个静态文件（chessground 的预构建产物从 `/vendor` 引），没有任何构建步骤。改样式直接改 `style.css`，改交互改 `app.js`，刷新即生效。

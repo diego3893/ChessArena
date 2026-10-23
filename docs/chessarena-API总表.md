@@ -263,6 +263,9 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `league.openings` | `8` | 随机开局步数，防同质对局 |
 | `league.max_concurrent` | `4` | 并发进程数 |
 | `builtin` | `[random, greedy, minimax2, minimax3, stockfish]` | 启用哪些内置档 |
+| `stockfish.elo` | `2600` | L5 的 `UCI_Elo`（1320–3190）；环境变量 `CHESSARENA_STOCKFISH_ELO` 优先 |
+| `stockfish.movetime` | `1.0` | L5 每步思考秒数；环境变量 `CHESSARENA_STOCKFISH_MOVETIME` 优先 |
+| `stockfish.path` | `thirdparty/stockfish/…universal.exe` | 引擎路径；环境变量 `CHESSARENA_STOCKFISH` 优先 |
 
 ---
 

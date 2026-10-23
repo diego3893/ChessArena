@@ -57,7 +57,7 @@ agents/            ★ 学生 AI 放这里（examples 有 3 个样例）
 assignments/       ★ 作业模板与评分脚本
 vendor/            chessground 预构建产物（前端，零构建）
 thirdparty/        chessground 源码 + Stockfish（需解压）
-tests/             97 个单元/集成用例
+tests/             100 个单元/集成用例
 runs/  results/    录像 / 联赛报告（可再生成）
 docs/              设计文档：API 总表（SSOT）、API 规格、使用说明书、选型调研
 config.yaml        端口、每步时限、重试、联赛参数

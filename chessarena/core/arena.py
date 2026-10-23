@@ -86,6 +86,7 @@ class Arena:
             on_timeout if on_timeout is not None else game_cfg.get("on_timeout", "forfeit")
         )
         self.logger = logger
+        self.stockfish = dict(self.config.get("stockfish") or {})
         self._games: list[Game] = []
         self._recorders: list[Recorder] = []
 
@@ -101,8 +102,10 @@ class Arena:
         game_id=None,
     ) -> Game:
         """开一局。``white`` / ``black`` 见《API总表》§10。"""
-        white_agent = resolve_player(white, seed=self.seed) if white is not None else None
-        black_agent = resolve_player(black, seed=self.seed) if black is not None else None
+        white_agent = (resolve_player(white, seed=self.seed, stockfish=self.stockfish)
+                       if white is not None else None)
+        black_agent = (resolve_player(black, seed=self.seed, stockfish=self.stockfish)
+                       if black is not None else None)
         game = Game(
             white_agent,
             black_agent,
