@@ -240,11 +240,6 @@ def cmd_replay(args):
     return 0
 
 
-def cmd_stub(args):
-    print("命令 %r 尚未实现（当前有 play / serve / test / league / replay / version）。" % (args.command,))
-    return 2
-
-
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="chessarena",

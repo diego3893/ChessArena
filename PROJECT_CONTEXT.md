@@ -422,7 +422,8 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 - 2 局 0.1s 完成，终端逐局打印；`runs/league-smoke/index.html` 含 ELO 表（两人均 1500，两和）与非法率、平均每步；`pgn/` 下 2 个 PGN。
 - 续跑：重复执行后 `games.jsonl` 行数不变（不重复跑）。
 - 编排：`rounds=2`、2 人 → 4 局，黑白各半。
-- 边界：一局 120 步未终局时记为 `unfinished`（按 0.5 计），报告里原因可见。
+- 3 人演示（random/greedy/minimax2，rounds=1，openings=4）：6 局 7.4s，ELO `minimax2 1531 > greedy 1498 > random 1471`，非法率全 0，报告落在 `results/demo-league/`。
+- 边界：一局 200 步未终局时记为 `unfinished`（按 0.5 计），报告里原因可见——所以联赛默认 `max_plies=600`。
 **Conclusion:** M5 达成；联赛可直接用于课堂排名。
 
 ### E009 — 阶段 6 教学包与 CLI 验收
