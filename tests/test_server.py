@@ -23,9 +23,9 @@ from chessarena.web.session import Session
 class ServerFixture:
     """在后台线程里跑一个真实 uvicorn。"""
 
-    def __init__(self, white, black, *, speed=4.0):
+    def __init__(self, white, black, *, speed=4.0, heartbeat=0.2):
         self.arena = Arena(live=True, seed=0, config="__no_such_config__.yaml")
-        self.session = Session(self.arena, white, black, speed=speed)
+        self.session = Session(self.arena, white, black, speed=speed, heartbeat=heartbeat)
         self.app = create_app(self.session)
         self.server = uvicorn.Server(uvicorn.Config(
             self.app, host="127.0.0.1", port=0, log_level="error", lifespan="on"
@@ -294,6 +294,57 @@ class TestControlExtra(unittest.TestCase):
             self.assertEqual(body["state"]["over"], True)
             self.assertEqual(body["state"]["result"], "0-1")
             self.assertEqual(body["state"]["over_reason"], "resign")
+
+
+class TestResilience(unittest.TestCase):
+    """针对"AI 回合卡住"加的自愈与可观测性。"""
+
+    def test_debug_reports_driver(self):
+        with ServerFixture("human", "builtin:greedy") as fx:
+            status, body = fx.get("/debug")
+            self.assertEqual(status, 200)
+            self.assertTrue(body["driver_alive"])
+            self.assertEqual(body["stalls"], 0)
+            self.assertIn("game_id", body)
+
+    def test_heartbeat_pushes_state(self):
+        with ServerFixture("human", "human") as fx:
+            with connect(fx.ws) as ws:
+                json.loads(ws.recv(timeout=5))  # hello
+                seen = []
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    msg = json.loads(ws.recv(timeout=5))
+                    seen.append(msg["type"])
+                    if msg["type"] == "heartbeat":
+                        self.assertIn("state", msg)
+                        break
+                self.assertIn("heartbeat", seen)
+
+    def test_driver_restarts_after_death(self):
+        with ServerFixture("human", "human") as fx:
+            session = fx.session
+            session._stop = True
+            session._driver.join(timeout=2)
+            self.assertFalse(session.driver_alive)
+            session._stop = False
+            self.assertTrue(session.ensure_driver())
+            self.assertTrue(session.driver_alive)
+
+    def test_stall_detected_when_side_has_no_agent(self):
+        with ServerFixture("human", None) as fx:
+            status, body = fx.post("/move", {"move": "e2e4"})
+            self.assertEqual(status, 200, msg=body)
+            deadline = time.monotonic() + 5
+            stalls = 0
+            while time.monotonic() < deadline:
+                _, debug = fx.get("/debug")
+                stalls = debug["stalls"]
+                if stalls:
+                    break
+                time.sleep(0.05)
+            self.assertGreaterEqual(stalls, 1, "没检测到空转")
+            self.assertTrue(fx.get("/debug")[1]["driver_alive"])
 
 
 class TestRecordMode(unittest.TestCase):

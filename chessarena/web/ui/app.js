@@ -18,12 +18,27 @@ const ui = {
   pendingPromo: null,
   ws: null,
   toastTimer: null,
+  lastMsgAt: Date.now(),
 };
 
 // ---------------------------------------------------------------- 工具
 const colorOf = (st) => (st.turn === "w" ? "white" : "black");
 const humanOf = (st, side) => Boolean(st.human && st.human[side]);
 const canMove = (st) => !st.over && !st.paused && humanOf(st, st.turn);
+
+// 网络来的快照统一从这里进：旧快照（ply 更小、同一局）直接丢，避免闪烁回退
+function applyState(st) {
+  if (!st) return;
+  const cur = ui.state;
+  if (cur && st.game_id === cur.game_id && typeof st.ply === "number" && st.ply < cur.ply) {
+    return;
+  }
+  try {
+    render(st);
+  } catch (err) {
+    console.error("render 失败：", err, st);
+  }
+}
 
 function destMap(st) {
   const map = new Map();
@@ -124,12 +139,15 @@ function renderCaptures(st) {
 function renderStatus(st) {
   $("#turn-dot").className = "dot " + colorOf(st);
   const name = colorOf(st) === "white" ? "白方" : "黑方";
+  const aiTurn = st.human && st.human[st.turn] === false;
   if (st.over) {
     const result = st.result || "*";
     const text = result === "1/2-1/2" ? "和棋" : result === "1-0" ? "白方胜" : "黑方胜";
     $("#turn-text").textContent = `${text} · ${REASON_TEXT[st.over_reason] || st.over_reason || ""}`;
   } else if (st.paused) {
     $("#turn-text").textContent = "已暂停";
+  } else if (aiTurn) {
+    $("#turn-text").textContent = `${name}思考中…${st.is_check ? " · 将军！" : ""}`;
   } else if (st.is_check) {
     $("#turn-text").textContent = `${name}走棋 · 将军！`;
   } else {
@@ -167,17 +185,17 @@ async function sendMove(move) {
     });
     const body = await res.json();
     if (body.result && !body.result.ok) toast(body.result.reason, "bad");
-    if (body.state) render(body.state);
+    if (body.state) applyState(body.state);
   } catch (err) {
     toast("网络错误：" + err.message, "bad");
-    if (ui.state) render(ui.state);
+    if (ui.state) applyState(ui.state);
   }
 }
 
 function onUserMove(orig, dest) {
   const st = ui.state;
   if (!st || !canMove(st)) {
-    setTimeout(() => ui.state && render(ui.state), 0); // 弹回
+    setTimeout(() => ui.state && applyState(ui.state), 0); // 弹回
     return;
   }
   const base = orig + dest;
@@ -185,7 +203,7 @@ function onUserMove(orig, dest) {
   if (promos.length) {
     ui.pendingPromo = { base };
     $("#promo").classList.remove("hidden");
-    setTimeout(() => ui.state && render(ui.state), 0); // 先退回原位，等选择
+    setTimeout(() => ui.state && applyState(ui.state), 0); // 先退回原位，等选择
     return;
   }
   sendMove(base);
@@ -203,7 +221,7 @@ function bindPromo() {
   $("#promo-cancel").addEventListener("click", () => {
     ui.pendingPromo = null;
     $("#promo").classList.add("hidden");
-    if (ui.state) render(ui.state);
+    if (ui.state) applyState(ui.state);
   });
 }
 
@@ -220,7 +238,7 @@ async function control(payload) {
       toast(body.error || "控制失败", "bad");
       return null;
     }
-    if (body.state) render(body.state);
+    if (body.state) applyState(body.state);
     return body;
   } catch (err) {
     toast("网络错误：" + err.message, "bad");
@@ -258,7 +276,7 @@ function bindUi() {
   $("#btn-resign").addEventListener("click", () => control({ action: "resign" }));
   $("#btn-flip").addEventListener("click", () => {
     ui.orientation = ui.orientation === "white" ? "black" : "white";
-    if (ui.state) render(ui.state);
+    if (ui.state) applyState(ui.state);
   });
   $("#btn-pgn").addEventListener("click", async () => {
     const text = await (await fetch("/pgn")).text();
@@ -300,20 +318,26 @@ function bindUi() {
 
 // ---------------------------------------------------------------- WebSocket
 function connect() {
+  if (ui.ws && (ui.ws.readyState === WebSocket.OPEN || ui.ws.readyState === WebSocket.CONNECTING)) {
+    return; // 已经有活连接，别开第二个
+  }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   ui.ws = ws;
 
   ws.onopen = () => {
     setConn(true);
+    ui.lastMsgAt = Date.now();
     ws.send(JSON.stringify({ type: "ping" }));
   };
   ws.onclose = () => {
     setConn(false);
+    ui.ws = null;
     setTimeout(connect, 1200);
   };
   ws.onerror = () => setConn(false);
   ws.onmessage = (event) => {
+    ui.lastMsgAt = Date.now();
     let msg;
     try {
       msg = JSON.parse(event.data);
@@ -323,15 +347,16 @@ function connect() {
     switch (msg.type) {
       case "hello":
         if (msg.version) $("#version").textContent = " v" + msg.version;
-        render(msg.state);
+        applyState(msg.state);
         break;
       case "move":
       case "control":
       case "reset":
-        render(msg.state);
+      case "heartbeat":
+        applyState(msg.state);
         break;
       case "game_over":
-        render(msg.state);
+        applyState(msg.state);
         break;
       case "illegal":
       case "retry":
@@ -340,6 +365,24 @@ function connect() {
         break;
     }
   };
+}
+
+// 兜底：WS 静默失效（连着但不再推消息）时，主动用 HTTP 把状态拉回来
+function watchdog() {
+  setInterval(() => {
+    if (Date.now() - ui.lastMsgAt < 5000) return;
+    if (!ui.ws || ui.ws.readyState !== WebSocket.OPEN) {
+      connect();
+      return;
+    }
+    fetch("/state")
+      .then((r) => r.json())
+      .then((st) => {
+        ui.lastMsgAt = Date.now();
+        applyState(st);
+      })
+      .catch(() => {});
+  }, 3000);
 }
 
 function keepAlive() {
@@ -367,3 +410,4 @@ bindUi();
 bindPromo();
 connect();
 keepAlive();
+watchdog();

@@ -5,6 +5,7 @@
 - 每条事件都推给 `/ws` 的连接（页面），协议见《API总表》§16.3。
 """
 
+import sys
 import threading
 import time
 
@@ -45,7 +46,7 @@ class Hub:
 class Session:
     """一局棋的服务端会话。"""
 
-    def __init__(self, arena, white, black, *, fen=None, speed=1.0):
+    def __init__(self, arena, white, black, *, fen=None, speed=1.0, heartbeat=3.0):
         self.arena = arena
         self.white_spec = white
         self.black_spec = black
@@ -57,6 +58,10 @@ class Session:
         self._base_delay = 0.35  # 1× 速度下 AI 每步间隔，给页面看清楚
         self._stop = False
         self._game = None
+        self._steps = 0
+        self._stalls = 0
+        self._last_error = None
+        self._heartbeat = float(heartbeat)
         self._build_game()
         self._driver = threading.Thread(
             target=self._drive, daemon=True, name="chessarena-driver"
@@ -76,6 +81,43 @@ class Session:
     @property
     def speed(self) -> float:
         return self._speed
+
+    @property
+    def heartbeat(self) -> float:
+        return self._heartbeat
+
+    @property
+    def driver_alive(self) -> bool:
+        return self._driver.is_alive()
+
+    def ensure_driver(self):
+        """驱动线程意外退出时重启它（自愈）。返回是否重启过。"""
+        if self._stop or self._driver.is_alive():
+            return False
+        self._log("驱动线程已退出，重启中")
+        self._driver = threading.Thread(target=self._drive, daemon=True, name="chessarena-driver")
+        self._driver.start()
+        return True
+
+    def debug(self) -> dict:
+        with self._lock:
+            game = self._game
+            return {
+                "game_id": game.game_id,
+                "ply": game.ply,
+                "turn": game.turn,
+                "over": game.over,
+                "paused": self._paused,
+                "speed": self._speed,
+                "driver_alive": self._driver.is_alive(),
+                "steps": self._steps,
+                "stalls": self._stalls,
+                "last_error": self._last_error,
+                "clients": len(self.hub._queues),
+            }
+
+    def _log(self, message):
+        print("[chessarena] %s" % (message,), file=sys.stderr, flush=True)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -201,15 +243,34 @@ class Session:
     # --- AI 驱动 -------------------------------------------------------
     def _drive(self):
         while not self._stop:
-            idle = True
-            with self._lock:
-                if self._stop:
-                    return
-                game = self._game
-                if not self._paused and not game.over and not self._is_human(game.turn):
-                    game.step()
-                    idle = False
-            if idle:
-                time.sleep(0.05)
-            else:
-                time.sleep(self._base_delay / self._speed)
+            try:
+                idle = True
+                with self._lock:
+                    if self._stop:
+                        return
+                    game = self._game
+                    if not self._paused and not game.over and not self._is_human(game.turn):
+                        before = game.ply
+                        game.step()
+                        progressed = game.ply != before or game.over
+                        if progressed:
+                            self._steps += 1
+                            self._stalls = 0
+                        else:
+                            # 没有推进（例如该方没绑定 AI）：别空转，记下来
+                            self._stalls += 1
+                            if self._stalls in (1, 5, 20):
+                                self._log(
+                                    "AI 步未推进（第 %d 次）：turn=%s over=%s"
+                                    % (self._stalls, game.turn, game.over)
+                                )
+                        idle = not progressed
+                if idle:
+                    time.sleep(0.05)
+                else:
+                    time.sleep(self._base_delay / max(0.05, self._speed))
+            except Exception as exc:  # 驱动线程绝不能静默死掉
+                self._last_error = repr(exc)
+                self._log("驱动异常：%r" % (exc,))
+                time.sleep(0.5)
+

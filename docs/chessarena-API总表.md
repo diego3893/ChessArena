@@ -380,6 +380,7 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `POST` | `/move` | `{"move":"e2e4"}` | `200` `{"result":{...},"state":{...}}` | `400/409/410`，体同形（`result.code` 说明原因） |
 | `POST` | `/reset` | `{}` 或 `{"fen":"..."}` | `200` `{"result":{"code":0,...},"state":{...}}` | `400` 非法 FEN |
 | `GET` | `/pgn` | — | `200` `text/plain` | — |
+| `GET` | `/debug` | — | `200` 驱动状态（`driver_alive`/`stalls`/`steps`/`clients`/`last_error`） | — |
 | `POST` | `/control` | 见下表 | `200` `{"paused":false,"speed":1.0,"state":{...}}` | `400` 未知动作 |
 | `WS` | `/ws` | — | 见 §16.3 | — |
 
@@ -411,9 +412,12 @@ HTTP 状态码与返回码一一对应（响应体都带完整 `state`，见 §1
 | `retry` | AI 某步被拒后重试 | `side`、`attempt`、`code`、`reason` |
 | `control` | 暂停/继续/调速/悔棋/认输/开新局 | `paused`、`speed`、`state` |
 | `reset` | `POST /reset` 之后 | `state` |
+| `heartbeat` | 每 3 秒（`Session.heartbeat` 可调） | `state` |
 | `pong` | 回应客户端 `{"type":"ping"}` | — |
 
 客户端可发：`{"type":"ping"}`。其余客户端消息忽略（落子走 HTTP `/move`，保证"单写入口"只有一条路径）。
+
+> **容错约定**：客户端必须能容忍"漏掉某条 `move`"——`heartbeat` 每 3 秒重推完整快照；客户端另应在 5 秒无消息时用 `GET /state` 主动校准，并丢弃 `ply` 更小的旧快照。服务端驱动线程若有异常会写入 stderr（`[chessarena] ...`），并在 2 秒内自动重启（`/debug` 可查）。
 
 ### 16.4 录像（`record=True`）
 

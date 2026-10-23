@@ -38,9 +38,11 @@ def create_app(session: Session) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         session.hub.loop = asyncio.get_running_loop()
+        maintenance = asyncio.create_task(_maintain(session))
         try:
             yield
         finally:
+            maintenance.cancel()
             session.hub.loop = None
 
     app = FastAPI(title="ChessArena", version=__version__, lifespan=lifespan)
@@ -68,6 +70,11 @@ def create_app(session: Session) -> FastAPI:
     @app.get("/state")
     def get_state():
         return JSONResponse(session.snapshot(), headers=_NO_CACHE)
+
+    @app.get("/debug")
+    def get_debug():
+        """诊断用：驱动线程是否活着、卡了几次、有几个 WS 客户端。"""
+        return JSONResponse(session.debug(), headers=_NO_CACHE)
 
     @app.get("/legal_moves")
     def get_legal_moves():
@@ -112,10 +119,11 @@ def create_app(session: Session) -> FastAPI:
         await sock.send_json({"type": "hello", "version": __version__, "state": session.snapshot()})
         sender = asyncio.create_task(_send_loop(sock, queue))
         reader = asyncio.create_task(_read_loop(sock, queue))
+        beat = asyncio.create_task(_heartbeat(session, queue))
         try:
-            await asyncio.wait({sender, reader}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({sender, reader, beat}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            for task in (sender, reader):
+            for task in (sender, reader, beat):
                 task.cancel()
             session.hub.unregister(queue)
 
@@ -128,6 +136,23 @@ async def _send_loop(sock: WebSocket, queue: "asyncio.Queue"):
         if message is _SENTINEL:
             return
         await sock.send_json(message)
+
+
+async def _heartbeat(session: Session, queue: "asyncio.Queue"):
+    """每 N 秒推一份完整快照：即使漏了某条 move 消息，页面也会被纠正回来。"""
+    while True:
+        await asyncio.sleep(max(0.2, session.heartbeat))
+        queue.put_nowait({"type": "heartbeat", "state": session.snapshot()})
+
+
+async def _maintain(session: Session):
+    """后台自愈：驱动线程意外退出就重启。"""
+    while True:
+        await asyncio.sleep(2.0)
+        try:
+            session.ensure_driver()
+        except Exception as exc:  # 自愈失败也不能拖垮服务
+            print("[chessarena] ensure_driver 失败：%r" % (exc,), flush=True)
 
 
 async def _read_loop(sock: WebSocket, queue: "asyncio.Queue"):

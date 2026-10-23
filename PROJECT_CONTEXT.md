@@ -41,7 +41,7 @@
 
 **Confirmed（2026-10-23 03:2x，阶段 3 前端落地 + 阶段 4 五档完成）：**
 
-- **可运行**：`chessarena/` 30 个 Python 模块（约 3,200 行）+ 前端 676 行；`tests/` **66 个用例全绿**（连续 3 轮，Stockfish 引擎用例在沙箱内 skip）；`play` / `serve` / 页面 / 五档 AI 齐备（M1、M2、M4 达成；M3 代码完成、待人工浏览器验收）。
+- **可运行**：`chessarena/` 30 个 Python 模块（约 3,300 行）+ 前端 690 行；`tests/` **70 个用例全绿**（连续 3 轮，Stockfish 引擎用例在沙箱内 skip）；`play` / `serve` / 页面 / 五档 AI 齐备（M1、M2、M4 达成；M3 代码完成、待人工浏览器验收）。
 - **内核**：五返回码 + 原子性 + 重试预算 + 硬超时 + 终局 + 事件 + PGN + `history_san`/`captured`。
 - **服务**：`web/session.py`（驱动线程 + 广播 + 暂停/单步/调速/悔棋/认输/换模式）、`web/server.py`（FastAPI + 静态页 + `WS /ws`）、`Client`、录像 JSONL。
 - **前端**：`web/ui/{index.html,app.js,style.css}`，chessground 零构建；落子/升变/记谱/吃子/悔棋/认输/翻转/导出 PGN/机机调速与暂停单步。
@@ -477,12 +477,27 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 **Impact:** 只有"引擎相关自动化"受影响：`test_engine_returns_legal_move` 在沙箱内 `skipTest`；网页与 `play` 用 L1–L4 不受影响。用户在自己终端（无沙箱）跑 L5 正常。
 **Fix/Workaround:** 需要引擎验证时用 `danger-full-access` 跑单条命令；或由用户在本机执行 `python -m chessarena play --black builtin:stockfish`。
 
+### P010 — 页面"卡住"：轮到黑方但 AI 不动（用户实测，2026-10-23）
+
+**Symptoms:** 用户截图：1.d4 f5 2.f4 之后状态停在"黑方走棋 · 第 3 步"，棋盘与记谱都不再变化，右上角仍显示"已连接"。
+**Reconciliation:** 自测无法复现——服务端每步都推进、WS 每条 move 都送达（人工对局 10 步收 10 条 move 消息）。因此判断为**客户端漏掉/未渲染某条推送后没有兜底**，或驱动线程异常无人知晓；页面并非"服务端真的停住"。
+**Root cause:** 未复现；但暴露了三个真实缺陷：
+1. 客户端没有任何状态校准：漏一条 `move` 就永久停在旧局面，且旧局面下不能落子（轮 AI）→ 表现为"卡死"。
+2. 驱动线程 `_drive` 没有 `try/except`：任何异常都会让它**静默退出**，之后 AI 永不走。`game.step()` 不推进时还会以 0.35s 间隔空转。
+3. 没有任何诊断入口，用户看不到"AI 在算 / 已死"。
+
+**Fix（防御性，已实现）:**
+- 服务端：WS 每 3s 推 `heartbeat`（完整快照）；`_drive` 包 `try/except` 并把异常打到 stderr；空转检测（`stalls`）；每 2s `ensure_driver()` 自动重启死掉的驱动；新增 `GET /debug`（`driver_alive`/`steps`/`stalls`/`last_error`/`clients`）。
+- 客户端：所有网络快照走 `applyState()`（丢弃同局 `ply` 更小的旧快照）；5s 无消息即用 `GET /state` 校准；WS 重连去重；`render` 包 `try/catch`；AI 回合显示"思考中…"。
+**Validation:** `tests/test_server.py::TestResilience` 4 个用例（heartbeat、驱动重启、空转检测、/debug）；全套 70 用例 3 轮全绿。
+**Todo for user:** 复现时看服务器终端是否有 `[chessarena]` 行、浏览器 F12 控制台；若再次卡住，用 `GET /debug` 的 `stalls`/`last_error` 定位。
+
 ## 12. Current Working Set
 
-- **Files currently being changed:** 无（阶段 4 已收尾）。
+- **Files currently being changed:** `web/session.py`、`web/server.py`、`web/ui/app.js`（P010 的自愈修复）。
 - **Functions/components in focus:** 阶段 5 的 `League`：循环赛编排、随机开局、并发、ELO、非法率、报告。
-- **Immediate issue:** 无阻塞项；联赛只依赖已完成的 `Arena.new_game` 与 `run_to_end`。
-- **Current hypothesis:** 用多进程跑对局（每局独立 `Arena(live=False)`），ELO 用标准 400 分制、K=32；非法率 = `len(game.rejected) / max(1, ply + rejected)`。
+- **Immediate issue:** 请用户重开页面（`serve` 重启后 F5）验证"卡住"是否消失；即使复现，页面也会在 5s 内自动校准。
+- **Current hypothesis:** 客户端漏消息后无兜底是主因；服务端驱动异常是可能的次因，现已可观测、可自愈。
 - **Next check:** 并发度与 CPU 核数（本机逻辑核数未知）；L4 每步 0.85s 会不会让联赛太慢（20 局 × 100 步 × 0.85s ≈ 28 分钟/对）。必要时联赛默认用 L1–L3，或允许按档位调小预算。
 
 ## 13. Next Actions
@@ -565,7 +580,7 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 3. **已完成**：阶段 0（文档收敛、vendor、git）、1（内核 + L1/L2 + CLI）、2（HTTP/WS/Client/录像）、3 代码（页面 + 控制 + 静态检查）、4（五档 + Stockfish UCI）；**66 个测试全绿（1 个引擎用例在沙箱内 skip）**，M0–M2、M4 达成，M3 待人工验收。
 4. **最大剩余问题**：没有阻塞；只剩工作量——浏览器验收（M3）、联赛 + ELO（阶段 5）、教学包（阶段 6）。
 5. **已排除**：npm 构建 chessground（F001）；SAN 与 `drop(x,y,color)`（D005）；联机（D008）；`move()` 别名（D003）；关键词式文档校验（F002）；旧版 python-chess 名（F003）；前端自己判规则（D019）；L4 固定深度（D021）。
-6. **第一个下一步**：阶段 5 —— `chessarena/league.py`（编排 + 多进程 + ELO + 非法率 + HTML 报告）与 CLI `league`，以 M5（一条命令出 ELO 表）验收；同时请用户开一次页面完成 M3 人工验收。
+6. **第一个下一步**：**先请用户重启 `serve` 并刷新页面**，确认 P010 的"卡住"已消失（现在有 3s 心跳与 5s 校准兜底）；随后进入阶段 5 —— `chessarena/league.py`（编排 + 多进程 + ELO + 非法率 + HTML 报告）与 CLI `league`，以 M5 验收。
 
 ## 17. Decision / Progress Log
 
@@ -580,3 +595,4 @@ AI（内置 minimax / 学生 Agent / UCI 引擎 / HTTP 服务）
 `2026-10-23 02:1x — 阶段 2 完成（M2）：总表 §16 推送协议（快照形状 + 400/409/410 + 7 种 WS 消息）；`web/session.py` 驱动线程 + 广播；FastAPI 7 端点；`Client`（stdlib）；`record` JSONL；14 个集成用例，46 个测试全绿，吞吐 7,067 plies/s；补 D017（单进程一局/单一快照）、D018（服务端驱动 AI）。`
 `2026-10-23 02:5x — 阶段 3 代码完成：`web/ui/`（页 676 行 JS/CSS/HTML）零构建引 chessground；服务端补 `history_san`/`captured`/`human`/`paused`/`speed`/`timeout`，`/control` 增 `undo`/`resign`/带选手的 `new`；静态页与 4 个接线用例；55 个测试全绿；补 D019（前端不含棋规）、D020（非法重绘）；P008（Edge 在沙箱内起不来，M3 待人工验收）。`
 `2026-10-23 03:2x — 阶段 4 完成（M4）：解压 Stockfish 19；`engines/uci.py` + 五档（L3 深度2、L4 αβ 迭代加深 0.85s、L5 `UCI_Elo`）；L3 ≤0.03s、L4 ≤0.86s、找到 Qxf7#；66 个测试全绿（引擎用例沙箱内 skip）；补 D021（预算制）、D022（UCI 交给 python-chess）、P009（沙箱禁管道）。`
+`2026-10-23 04:0x — 用户实测"页面卡住"（P010）：无法复现服务端停步，判定为客户端漏消息无兜底 + 驱动线程可能静默死亡。修复：WS heartbeat（3s 全量快照）、客户端 5s HTTP 校准与旧快照丢弃、驱动 try/except + 空转检测 + 2s 自动重启、`GET /debug`、AI 回合"思考中…"；新增 TestResilience 4 用例，70 个测试 3 轮全绿。`
