@@ -70,7 +70,8 @@ class TestSearchAgents(unittest.TestCase):
             for fen in POSITIONS:
                 state = state_of(fen)
                 move = agent.choose_move(state)
-                self.assertIn(move, state.legal_moves, msg="%s @ %s" % (name, fen))
+                self.assertIn(move, [m.uci() for m in chess.Board(state.fen).legal_moves],
+                              msg="%s @ %s" % (name, fen))
 
     def test_l4_respects_budget(self):
         agent = make_builtin("minimax3")
@@ -79,7 +80,7 @@ class TestSearchAgents(unittest.TestCase):
         started = time.monotonic()
         move = agent.choose_move(state)
         elapsed = time.monotonic() - started
-        self.assertIn(move, state.legal_moves)
+        self.assertIn(move, [m.uci() for m in chess.Board(state.fen).legal_moves])
         self.assertLess(elapsed, 1.5, "预算 0.25s 却用了 %.2fs" % (elapsed,))
 
     def test_no_moves_returns_none(self):

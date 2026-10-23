@@ -8,8 +8,6 @@ import json
 import time
 from urllib import error, request
 
-import chess
-
 from .core.board import Board
 from .core.result import Result
 from .core.state import State
@@ -21,7 +19,9 @@ class Client:
     def __init__(self, base_url, *, timeout=10.0, side=None):
         self.base_url = str(base_url).rstrip("/")
         self.timeout = float(timeout)
-        self.side = side  # "w" / "b" / None：只用于 wait_my_turn
+        if side is not None and side not in ("w", "b"):
+            raise ValueError("side须为w或b")
+        self.side = side
 
     # ------------------------------------------------------------------
     def _request(self, method, path, payload=None):
@@ -49,22 +49,16 @@ class Client:
 
     # ------------------------------------------------------------------
     def state(self) -> State:
-        body = self._snapshot()
-        board = chess.Board(body["fen"])
-        return State(board, body.get("history") or (), body.get("last_error"))
+        return State.from_json(self._snapshot())
 
     def board(self) -> Board:
-        return Board(chess.Board(self._snapshot()["fen"]))
-
-    def legal_moves(self) -> tuple[str, ...]:
-        """直接问服务端要合法着法（与 ``state.legal_moves`` 同序）。"""
-        status, body = self._request("GET", "/legal_moves")
-        if status != 200:
-            raise RuntimeError("GET /legal_moves 失败：HTTP %s" % (status,))
-        return tuple(body.get("legal_moves") or ())
+        return Board(self.state())
 
     def submit(self, move) -> Result:
-        status, body = self._request("POST", "/move", {"move": move})
+        payload = {"move": move}
+        if self.side is not None:
+            payload["side"] = self.side
+        status, body = self._request("POST", "/move", payload)
         payload = body.get("result") or {}
         code = payload.get("code")
         if code is None:

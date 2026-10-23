@@ -1,94 +1,58 @@
-"""``Board``：棋盘的只读视图。
+"""只读棋子视图，不持有规则引擎，不提供合法着法。"""
 
-**没有任何写方法**，这是刻意的——唯一写入口是 ``Game.submit()``。
-每次读取都从裁判当前的 ``chess.Board`` 现算，所以它永远是同一份真相。
-"""
-
-import chess
-
-from ..core.moves import xy
-
-
-def _symbols_row(board: chess.Board, rank: int) -> list[str]:
-    row = []
-    for file in range(8):
-        piece = board.piece_at(chess.square(file, rank))
-        row.append(piece.symbol() if piece else ".")
-    return row
+from .moves import xy
+from .state import State
 
 
 class Board:
-    """只读棋盘视图。"""
+    __slots__ = ("__read",)
 
-    __slots__ = ("_b",)
+    def __init__(self, board):
+        state = board if isinstance(board, State) else State(board)
+        self.__read = lambda: state
 
-    def __init__(self, board: chess.Board):
-        self._b = board
-
-    # --- 基本读取 -----------------------------------------------------
-    @property
-    def fen(self) -> str:
-        return self._b.fen()
-
-    @property
-    def turn(self) -> str:
-        return "w" if self._b.turn else "b"
+    @classmethod
+    def _live(cls, read):
+        view = cls.__new__(cls)
+        view.__read = read
+        return view
 
     @property
-    def is_check(self) -> bool:
-        return self._b.is_check()
+    def fen(self):
+        return self.__read().fen
 
     @property
-    def is_game_over(self) -> bool:
-        return self._b.is_game_over(claim_draw=True)
+    def turn(self):
+        return self.__read().turn
 
     @property
-    def result(self) -> str | None:
-        """从白方视角的结果：``"1-0"`` / ``"0-1"`` / ``"1/2-1/2"`` / ``None``。"""
-        outcome = self._b.outcome(claim_draw=True)
-        return outcome.result() if outcome else None
+    def is_check(self):
+        return self.__read().is_check
 
     @property
-    def legal_moves(self) -> tuple[str, ...]:
-        """当前全部合法着法（UCI，顺序固定：按字符串升序）。"""
-        return tuple(sorted(m.uci() for m in self._b.legal_moves))
+    def is_game_over(self):
+        return self.__read().is_game_over
 
-    # --- 单格读取 -----------------------------------------------------
-    def get(self, x: int, y: int) -> str:
-        """``board.get(4, 3)`` 取 e4：返回 ``'P'``/``'p'``/``'.'``。"""
-        sq = chess.square(x, y)
-        piece = self._b.piece_at(sq)
-        return piece.symbol() if piece else "."
+    @property
+    def result(self):
+        return self.__read().result
 
-    def piece_at(self, sq: str) -> str:
-        """``board.piece_at("e4")``：同上，用格名索引。"""
-        x, y = xy(sq)
-        return self.get(x, y)
+    def get(self, x, y):
+        if not (0 <= x < 8 and 0 <= y < 8):
+            raise ValueError("棋盘坐标须在0..7之间")
+        return self.__read().board[7-y][x]
 
-    def is_empty(self, x: int, y: int) -> bool:
+    def piece_at(self, sq):
+        return self.get(*xy(sq))
+
+    def is_empty(self, x, y):
         return self.get(x, y) == "."
 
-    def moves_from(self, sq: str) -> list[str]:
-        """某个格子的棋子能走到哪些格（UI 高亮/教学用），按格名排序。"""
-        try:
-            from_sq = chess.parse_square(sq)
-        except (ValueError, TypeError):
-            return []
-        targets = {
-            m.uci()[2:4]
-            for m in self._b.legal_moves
-            if m.from_square == from_sq
-        }
-        return sorted(targets)
+    def matrix(self):
+        return [list(row) for row in self.__read().board]
 
-    # --- 整盘读取 -----------------------------------------------------
-    def matrix(self) -> list[list[str]]:
-        """8×8 二维列表：``[0]`` 是第 8 横线（黑方底线），可直接 ``np.array()``。"""
-        return [_symbols_row(self._b, rank) for rank in range(7, -1, -1)]
+    def ascii(self):
+        return "\n".join(" ".join(row) for row in self.__read().board)
 
-    def ascii(self) -> str:
-        """终端字符画（``K``/``q``/``.``）。"""
-        return str(self._b)
-
-    def __repr__(self) -> str:
-        return "Board(fen=%r)" % (self.fen,)
+    def __repr__(self):
+        return "Board(fen=%r)" % self.fen

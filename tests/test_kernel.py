@@ -35,7 +35,7 @@ class SleepAgent(Agent):
 
     def choose_move(self, state):
         time.sleep(0.2)
-        return state.legal_moves[0]
+        return sorted(m.uci() for m in chess.Board(state.fen).legal_moves)[0]
 
 
 class SelfSubmitAgent(Agent):
@@ -45,7 +45,7 @@ class SelfSubmitAgent(Agent):
     fast_local = True
 
     def choose_move(self, state):
-        self.game.submit(state.legal_moves[0])
+        self.game.submit(sorted(m.uci() for m in chess.Board(state.fen).legal_moves)[0])
         return None
 
 
@@ -72,7 +72,7 @@ class SlipperyHuman(Agent):
         self.calls += 1
         if self.calls <= 2:
             return "e2e5"
-        return state.legal_moves[0]
+        return sorted(m.uci() for m in chess.Board(state.fen).legal_moves)[0]
 
 
 class TestMovesAndResult(unittest.TestCase):
@@ -176,28 +176,55 @@ class TestSubmitCodes(unittest.TestCase):
         self.assertEqual(self.game.ply, 0)
         self.assertEqual(self.game.state.fen, START_FEN)
 
-    def test_state_apply_is_local(self):
-        before = self.game.state
-        child = before.apply("e2e4")
-        self.assertEqual(child.ply, 1)
-        self.assertEqual(self.game.ply, 0)
-        self.assertEqual(self.game.state.fen, before.fen)
-        with self.assertRaises(chessarena.IllegalMoveError):
-            before.apply("e2e5")
+    def test_state_is_data_only_and_immutable(self):
+        state = self.game.state
+        for name in ("legal_moves", "apply", "_b"):
+            self.assertFalse(hasattr(state, name))
+        with self.assertRaises(AttributeError):
+            state.turn = "b"
+        self.game.submit("e2e4")
+        self.assertEqual(state.fen, START_FEN)
+        self.assertEqual(self.game.state.ep_square, "e3")
+        self.assertEqual(self.game.state.castling_rights, "KQkq")
 
     def test_board_is_readonly(self):
         board = self.game.board
         self.assertEqual(board.piece_at("e2"), "P")
         self.assertEqual(board.turn, "w")
-        self.assertEqual(board.moves_from("g1"), ["f3", "h3"])
+        self.assertFalse(hasattr(board, "moves_from"))
         self.assertEqual(len(board.matrix()), 8)
         with self.assertRaises(AttributeError):
             board.fen = "8/8/8/8/8/8/8/8 w - - 0 1"
 
-    def test_legal_moves_sorted_deterministic(self):
-        self.assertEqual(self.game.board.legal_moves, tuple(sorted(self.game.board.legal_moves)))
-        self.assertEqual(self.game.board.legal_moves, self.game.board.legal_moves)
-        self.assertEqual(len(self.game.board.legal_moves), 20)
+    def test_board_cannot_leak_referee_position(self):
+        board = self.game.board
+        self.assertFalse(hasattr(board, "_b"))
+        matrix = board.matrix()
+        matrix[6][4] = "Q"
+        self.assertEqual(self.game.state.fen, START_FEN)
+        self.assertEqual(self.game.ply, 0)
+        self.assertEqual(board.piece_at("e2"), "P")
+        self.game.submit("e2e4")
+        self.assertEqual(board.piece_at("e4"), "P")
+        self.game.reset()
+        self.assertEqual(board.piece_at("e2"), "P")
+        self.assertEqual(board.piece_at("e4"), ".")
+
+    def test_snapshots_do_not_share_input_board(self):
+        source = chess.Board()
+        state = chessarena.State(source)
+        board = chessarena.Board(source)
+        source.clear()
+        self.assertEqual(state.fen, START_FEN)
+        self.assertEqual(board.fen, START_FEN)
+        self.assertEqual(state.fen, START_FEN)
+
+    def test_no_action_space_in_public_views(self):
+        for obj in (self.game.state, self.game.board, self.game.player("w")):
+            for name in ("legal_moves", "moves_from", "apply"):
+                self.assertFalse(hasattr(obj, name))
+        for name in ("reset", "undo", "step", "acting_as", "_board"):
+            self.assertFalse(hasattr(self.game.player("w"), name))
 
 
 class TestTerminal(unittest.TestCase):
@@ -225,8 +252,8 @@ class TestTerminal(unittest.TestCase):
         self.assertEqual(g.result, "1/2-1/2")
 
     def test_insufficient_material(self):
-        g = self._game(fen="8/8/8/8/8/8/6k1/K7 w - - 0 1")
-        self.assertTrue(g.submit("a1b1"))
+        g = self._game(fen="8/8/8/8/8/2b5/6k1/KN6 w - - 0 1")
+        self.assertTrue(g.submit("b1c3"))
         self.assertEqual(g.over_reason, "insufficient")
         self.assertEqual(g.result, "1/2-1/2")
 

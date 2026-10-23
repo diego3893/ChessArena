@@ -15,7 +15,7 @@ from pathlib import Path
 import uvicorn
 from websockets.sync.client import connect
 
-from chessarena import Arena, Client, RC
+from chessarena import Agent, Arena, Client, RC
 from chessarena.web.server import create_app
 from chessarena.web.session import Session
 
@@ -80,18 +80,19 @@ class ServerFixture:
 
 
 class TestHttpEndpoints(unittest.TestCase):
-    def test_state_and_legal_moves(self):
+    def test_state_has_metadata_but_no_action_space(self):
         with ServerFixture("human", "builtin:greedy") as fx:
             status, state = fx.get("/state")
             self.assertEqual(status, 200)
             self.assertEqual(state["turn"], "w")
             self.assertEqual(state["ply"], 0)
-            self.assertEqual(len(state["legal_moves"]), 20)
+            self.assertNotIn("legal_moves", state)
+            self.assertEqual(state["castling_rights"], "KQkq")
             self.assertEqual(state["history"], [])
 
-            status, legal = fx.get("/legal_moves")
-            self.assertEqual(status, 200)
-            self.assertEqual(tuple(legal["legal_moves"]), tuple(state["legal_moves"]))
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                fx.get("/legal_moves")
+            self.assertEqual(caught.exception.code, 404)
 
     def test_move_ok_then_ai_replies(self):
         with ServerFixture("human", "builtin:greedy") as fx:
@@ -172,9 +173,9 @@ class TestClient(unittest.TestCase):
             client = Client(fx.base, side="w")
             state = client.state()
             self.assertEqual(state.turn, "w")
-            self.assertEqual(len(state.legal_moves), 20)
+            self.assertFalse(hasattr(state, "legal_moves"))
             self.assertEqual(state.fen, fx.get("/state")[1]["fen"])
-            self.assertEqual(client.legal_moves(), state.legal_moves)
+            self.assertFalse(hasattr(client, "legal_moves"))
 
             self.assertEqual(client.submit("Nf3"), RC.BAD_FORMAT)
             self.assertEqual(client.submit("e2e5"), RC.ILLEGAL_MOVE)
@@ -197,6 +198,109 @@ class TestClient(unittest.TestCase):
             status, body = fx.post("/move", {"move": "a2a3"})
             self.assertEqual(status, 410)
             self.assertEqual(body["result"]["code"], RC.GAME_OVER)
+
+
+class TestApiPlayers(unittest.TestCase):
+    def test_student_thread_can_submit_without_blocking_broadcast(self):
+        class Student(Agent):
+            def choose_move(self, state):
+                self.game.submit("e2e4")
+                return None
+
+        with ServerFixture(Student(), "human") as fx:
+            state = fx.wait_ply(1)
+            self.assertEqual(state["history"], ["e2e4"])
+            self.assertFalse(state["over"])
+            self.assertEqual(fx.get("/debug")[1]["steps"], 1)
+
+    def test_revision_increases_when_undo_and_reset_reduce_ply(self):
+        with ServerFixture("api", "api") as fx:
+            first = fx.get("/state")[1]
+            Client(fx.base, side="w").submit("e2e4")
+            moved = fx.get("/state")[1]
+            _, body = fx.post("/control", {"action": "undo"})
+            undone = body["state"]
+            self.assertEqual(undone["ply"], 0)
+            self.assertGreater(undone["revision"], moved["revision"])
+            self.assertGreater(moved["revision"], first["revision"])
+            _, body = fx.post("/reset", {})
+            self.assertGreater(body["state"]["revision"], undone["revision"])
+
+    def test_api_waits_for_client_and_builtin_replies(self):
+        with ServerFixture("api", "builtin:greedy") as fx:
+            _, state = fx.get("/state")
+            self.assertEqual(state["api"], {"w": True, "b": False})
+            self.assertFalse(state["human"]["w"])
+            self.assertTrue(fx.get("/players")[1]["api"])
+            time.sleep(0.15)
+            self.assertEqual(fx.get("/state")[1]["ply"], 0)
+            self.assertEqual(fx.get("/debug")[1]["stalls"], 0)
+            client = Client(fx.base, side="w")
+            self.assertTrue(client.wait_my_turn(timeout=1))
+            self.assertEqual(client.submit("e2e5"), RC.ILLEGAL_MOVE)
+            self.assertEqual(client.state().ply, 0)
+            self.assertTrue(client.submit("e2e4"))
+            self.assertEqual(fx.wait_ply(2)["turn"], "w")
+
+    def test_api_requires_side_and_rejects_out_of_turn(self):
+        with ServerFixture("api", "api") as fx:
+            for payload, status, code in (
+                ({"move": "e2e4"}, 409, RC.NOT_YOUR_TURN),
+                ({"move": "e2e4", "side": "b"}, 409, RC.NOT_YOUR_TURN),
+                ({"move": "e2e4", "side": "white"}, 400, RC.BAD_FORMAT),
+            ):
+                actual, body = fx.post("/move", payload)
+                self.assertEqual(actual, status)
+                self.assertEqual(body["result"]["code"], code)
+                self.assertEqual(body["state"]["ply"], 0)
+            white = Client(fx.base, side="w")
+            black = Client(fx.base, side="b")
+            self.assertTrue(white.submit("e2e4"))
+            self.assertEqual(white.submit("e7e5"), RC.NOT_YOUR_TURN)
+            self.assertEqual(black.state().ply, 1)
+            self.assertTrue(black.submit("e7e5"))
+            self.assertEqual(black.state().ply, 2)
+
+    def test_api_pause_and_single_step_wait_for_external_move(self):
+        with ServerFixture("api", "api") as fx:
+            client = Client(fx.base, side="w")
+            fx.post("/control", {"action": "pause"})
+            self.assertEqual(client.submit("e2e4"), RC.NOT_YOUR_TURN)
+            fx.post("/control", {"action": "step"})
+            self.assertEqual(client.state().ply, 0)
+            fx.post("/control", {"action": "resume"})
+            self.assertTrue(client.submit("e2e4"))
+
+    def test_api_game_over_and_websocket_broadcast(self):
+        with ServerFixture("api", "api") as fx:
+            white = Client(fx.base, side="w")
+            black = Client(fx.base, side="b")
+            with connect(fx.ws) as ws:
+                ws.recv(timeout=5)  # hello
+                self.assertTrue(white.submit("f2f3"))
+                message = json.loads(ws.recv(timeout=5))
+                self.assertEqual(message["type"], "move")
+                self.assertNotIn("legal_moves", message["state"])
+                self.assertEqual(message["state"]["history"], ["f2f3"])
+            for client, move in ((black, "e7e5"), (white, "g2g4"), (black, "d8h4")):
+                self.assertTrue(client.submit(move))
+            self.assertEqual(white.state().result, "0-1")
+            self.assertEqual(white.submit("a2a3"), RC.GAME_OVER)
+
+    def test_api_state_preserves_referee_termination_and_history(self):
+        with ServerFixture("api", "api") as fx:
+            clients = {"w": Client(fx.base, side="w"), "b": Client(fx.base, side="b")}
+            for move in ("g1f3", "g8f6", "f3g1", "f6g8"):
+                turn = fx.get("/state")[1]["turn"]
+                self.assertTrue(clients[turn].submit(move))
+            state = clients["w"].state()
+            self.assertEqual(state.history, ("g1f3", "g8f6", "f3g1", "f6g8"))
+            self.assertFalse(hasattr(state, "apply"))
+            fx.post("/control", {"action": "resign"})
+            for client in clients.values():
+                self.assertTrue(client.state().is_game_over)
+                self.assertEqual(client.state().result, "0-1")
+                self.assertFalse(client.wait_my_turn(timeout=0.1))
 
 
 class TestWebSocket(unittest.TestCase):

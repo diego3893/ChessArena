@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import chess
+
 from .core.arena import Arena
 
 DEFAULT_MAX_PLIES = 600
@@ -33,7 +35,7 @@ def play_game(job: dict) -> dict:
         for _ in range(int(job.get("opening_plies", 0))):
             if game.over:
                 break
-            moves = game.state.legal_moves
+            moves = sorted(m.uci() for m in chess.Board(game.state.fen).legal_moves)
             if not moves:
                 break
             move = rng.choice(moves)

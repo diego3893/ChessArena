@@ -19,7 +19,7 @@ from chessarena.core.state import State
 class _Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802（标准库命名）
         length = int(self.headers.get("Content-Length", 0))
-        self.rfile.read(length)
+        self.server.received_payload = json.loads(self.rfile.read(length))
         if getattr(self.server, "fail", False):
             body = b"boom"
             self.send_response(500)
@@ -82,6 +82,7 @@ class TestHttpAgent(unittest.TestCase):
         server = HTTPServer(("127.0.0.1", 0), _Handler)
         server.move = move
         server.fail = fail
+        self.http_server = server
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
@@ -92,6 +93,10 @@ class TestHttpAgent(unittest.TestCase):
         agent = HttpAgent("云端", self._server(move="g1f3"))
         state = State(chess.Board())
         self.assertEqual(agent.choose_move(state), "g1f3")
+        payload = self.http_server.received_payload
+        self.assertNotIn("legal_moves", payload)
+        self.assertEqual(payload["castling_rights"], "KQkq")
+        self.assertIn("board", payload)
 
     def test_http_error_is_transient(self):
         agent = HttpAgent("云端", self._server(fail=True))
@@ -114,7 +119,7 @@ class TestScan(unittest.TestCase):
             "class MyAgent(Agent):\n"
             "    name = '张三'\n"
             "    def choose_move(self, state):\n"
-            "        return state.legal_moves[0]\n",
+            '        return "e2e4"\n',
             encoding="utf-8",
         )
         (self.base / "broken.py").write_text("raise RuntimeError('oops')\n", encoding="utf-8")
@@ -139,7 +144,7 @@ class TestScan(unittest.TestCase):
             "class Helper(Agent):\n"
             "    name = 'helper'\n"
             "    def choose_move(self, state):\n"
-            "        return state.legal_moves[0]\n",
+            '        return "e2e4"\n',
             encoding="utf-8",
         )
         arena = Arena(live=False, agents_dir=self.base, config="__no_such_config__.yaml")
@@ -147,7 +152,7 @@ class TestScan(unittest.TestCase):
             infos = arena.agents()
             self.assertEqual([info.name for info in infos], ["helper"])
             game = arena.new_game(white=infos[0].spec, black="builtin:random")
-            self.assertTrue(game.submit(game.state.legal_moves[0]).ok)
+            self.assertTrue(game.submit("e2e4").ok)
         finally:
             arena.close()
 

@@ -36,7 +36,7 @@ class Agent:
     is_human = False
 
     def __init__(self):
-        # 平台在开局时注入：当前对局、执子颜色、随机数种子
+        # 平台在开局时注入：绑定颜色的Player接口、执子颜色、随机数种子
         self.game = None
         self.color = None
         self.seed = 0
@@ -87,6 +87,16 @@ class HumanAgent(Agent):
             if text.lower() in ("resign", "quit", "exit"):
                 return None
             return text
+
+
+class ApiAgent(Agent):
+    """外部程序主动通过HTTP提交着法，服务端不调用choose_move。"""
+
+    name = "外部AI/API"
+    is_api = True
+
+    def choose_move(self, state):
+        raise RuntimeError("API选手须通过Client.submit()或POST /move落子")
 
 
 def load_agent(path, *, seed=0):
@@ -181,6 +191,9 @@ def resolve_player(spec, *, seed=0, stockfish=None):
 
     if low == "human":
         return HumanAgent()
+
+    if low == "api":
+        return ApiAgent()
 
     if low.startswith("builtin:"):
         from ..builtin import make_builtin

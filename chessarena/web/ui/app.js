@@ -24,32 +24,25 @@ const ui = {
 // ---------------------------------------------------------------- 工具
 const colorOf = (st) => (st.turn === "w" ? "white" : "black");
 const humanOf = (st, side) => Boolean(st.human && st.human[side]);
+const apiOf = (st, side) => Boolean(st.api && st.api[side]);
 const canMove = (st) => !st.over && !st.paused && humanOf(st, st.turn);
 
-// 网络来的快照统一从这里进：旧快照（ply 更小、同一局）直接丢，避免闪烁回退
+// 用服务端修订号识别旧快照；悔棋和重置会减小ply，不能按步数判断新旧。
 function applyState(st) {
   if (!st) return;
   const cur = ui.state;
-  if (cur && st.game_id === cur.game_id && typeof st.ply === "number" && st.ply < cur.ply) {
-    return;
+  if (cur) {
+    if (Number.isInteger(st.revision) && Number.isInteger(cur.revision)) {
+      if (st.revision < cur.revision) return;
+    } else if (st.game_id === cur.game_id && typeof st.ply === "number" && st.ply < cur.ply) {
+      return;
+    }
   }
   try {
     render(st);
   } catch (err) {
     console.error("render 失败：", err, st);
   }
-}
-
-function destMap(st) {
-  const map = new Map();
-  for (const mv of st.legal_moves) {
-    const from = mv.slice(0, 2);
-    const to = mv.slice(2, 4);
-    if (!map.has(from)) map.set(from, []);
-    const arr = map.get(from);
-    if (!arr.includes(to)) arr.push(to);
-  }
-  return map;
 }
 
 function toast(text, kind = "") {
@@ -78,10 +71,10 @@ function render(st) {
     check: st.is_check ? turn : false,
     lastMove: st.last_move ? [st.last_move.slice(0, 2), st.last_move.slice(2, 4)] : [],
     movable: {
-      free: false,
+      free: true,
       color: canMove(st) ? turn : undefined,
-      dests: canMove(st) ? destMap(st) : new Map(),
-      showDests: true,
+      dests: new Map(),
+      showDests: false,
     },
   });
 
@@ -102,7 +95,7 @@ function renderPlayers(st) {
     const key = side === "white" ? "w" : "b";
     const name = (side === "white" ? st.white : st.black) || "—";
     el.querySelector(".pname").textContent = name;
-    const badge = humanOf(st, key) ? "人" : "AI";
+    const badge = humanOf(st, key) ? "人" : apiOf(st, key) ? "API" : "AI";
     el.querySelector(".badge").textContent = badge;
     el.classList.toggle("active", !st.over && st.turn === key);
   }
@@ -147,6 +140,8 @@ function renderStatus(st) {
     $("#turn-text").textContent = `${text} · ${REASON_TEXT[st.over_reason] || st.over_reason || ""}`;
   } else if (st.paused) {
     $("#turn-text").textContent = "已暂停";
+  } else if (apiOf(st, st.turn)) {
+    $("#turn-text").textContent = `${name}等待外部AI提交着法${st.is_check ? " · 将军！" : ""}`;
   } else if (aiTurn) {
     $("#turn-text").textContent = `${name}思考中…${st.is_check ? " · 将军！" : ""}`;
   } else if (st.is_check) {
@@ -155,7 +150,8 @@ function renderStatus(st) {
     $("#turn-text").textContent = `${name}走棋`;
   }
   $("#ply-text").textContent = `第 ${st.ply} 步`;
-  $("#limit-text").textContent = st.timeout ? `每步限时 ${st.timeout.toFixed(1)}s` : "";
+  $("#limit-text").textContent = apiOf(st, st.turn) ? "外部AI主动提交" :
+    st.timeout ? `每步限时 ${st.timeout.toFixed(1)}s` : "";
 }
 
 function syncMode(st) {
@@ -197,8 +193,10 @@ function onUserMove(orig, dest) {
     return;
   }
   const base = orig + dest;
-  const promos = st.legal_moves.filter((m) => m.startsWith(base) && m.length === 5);
-  if (promos.length) {
+  const row = 8 - Number(orig[1]);
+  const col = orig.charCodeAt(0) - 97;
+  const piece = st.board && st.board[row] && st.board[row][col];
+  if ((piece === "P" && dest[1] === "8") || (piece === "p" && dest[1] === "1")) {
     ui.pendingPromo = { base };
     $("#promo").classList.remove("hidden");
     setTimeout(() => ui.state && applyState(ui.state), 0); // 先退回原位，等选择
@@ -247,6 +245,7 @@ async function control(payload) {
 // ---------------------------------------------------------------- 选手选择
 const PLAYER_LABELS = {
   human: "人类",
+  api: "外部AI/API",
   "builtin:random": "随机 (L1)",
   "builtin:greedy": "贪心 (L2)",
   "builtin:minimax2": "Minimax 深度2 (L3)",
@@ -275,6 +274,7 @@ async function loadPlayers() {
       sel.appendChild(opt);
     };
     if (data.human) add("human", "人类");
+    if (data.api) add("api", "外部AI/API");
     for (const name of data.builtin || []) add("builtin:" + name, playerLabel("builtin:" + name));
     for (const agent of data.agents || []) {
       const spec = agent.spec || "agents/" + (agent.path || "");
@@ -453,7 +453,7 @@ ui.ground = Chessground($("#board"), {
   highlight: { lastMove: true, check: true },
   draggable: { enabled: true, showGhost: true },
   selectable: { enabled: true },
-  movable: { free: false, showDests: true, color: undefined, dests: new Map() },
+  movable: { free: true, showDests: false, color: undefined, dests: new Map() },
   events: { move: onUserMove },
 });
 

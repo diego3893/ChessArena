@@ -110,7 +110,7 @@ class UciAgent(Agent):
 
 
 class HttpAgent(Agent):
-    """POST ``{"fen","turn","ply","history","legal_moves"}``，读回 ``{"move": ...}``。"""
+    """POST只读局面数据，读回学生自行解码的``{"move": ...}``。"""
 
     def __init__(self, name, url, *, timeout=10.0):
         super().__init__()
@@ -119,13 +119,7 @@ class HttpAgent(Agent):
         self.timeout = float(timeout)
 
     def choose_move(self, state):
-        payload = {
-            "fen": state.fen,
-            "turn": state.turn,
-            "ply": state.ply,
-            "history": list(state.history),
-            "legal_moves": list(state.legal_moves),
-        }
+        payload = state.to_json()
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = request.Request(self.url, data=data,
                               headers={"Content-Type": "application/json"}, method="POST")

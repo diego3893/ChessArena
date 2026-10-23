@@ -81,11 +81,6 @@ def create_app(session: Session) -> FastAPI:
         """页面下拉框用：可选的人类 / 内置档 / 已加载的外部对手。"""
         return JSONResponse(session.available_players(), headers=_NO_CACHE)
 
-    @app.get("/legal_moves")
-    def get_legal_moves():
-        state = session.snapshot()
-        return {"turn": state["turn"], "legal_moves": state["legal_moves"]}
-
     @app.get("/pgn")
     def get_pgn():
         return PlainTextResponse(session.game.pgn())
@@ -93,7 +88,8 @@ def create_app(session: Session) -> FastAPI:
     # --- 写 -----------------------------------------------------------
     @app.post("/move")
     def post_move(payload: dict = Body(default=None)):
-        result = session.submit((payload or {}).get("move"))
+        body = payload or {}
+        result = session.submit(body.get("move"), side=body.get("side"))
         return JSONResponse(_envelope(result, session), status_code=_STATUS.get(result.code, 500))
 
     @app.post("/reset")

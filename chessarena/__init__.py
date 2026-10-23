@@ -21,6 +21,7 @@ from .core.moves import parse_uci, square, uci, xy
 from .core.rc import RC
 from .core.result import Result
 from .core.state import State
+from .core.player import Player
 
 #: 与《API总表》§9 的异常名对齐（内置 TimeoutError 的别名）
 TimeoutError = ChessArenaTimeout
@@ -39,6 +40,7 @@ __all__ = [
     "Result",
     "START_FEN",
     "State",
+    "Player",
     "TimeoutError",
     "ChessArenaError",
     "ChessArenaTimeout",

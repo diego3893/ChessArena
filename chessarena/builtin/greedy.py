@@ -35,11 +35,11 @@ class GreedyAgent(Agent):
         return self._rng
 
     def choose_move(self, state):
-        moves = state.legal_moves
+        board = chess.Board(state.fen)
+        moves = sorted(m.uci() for m in board.legal_moves)
         if not moves:
             return None
 
-        board = chess.Board(state.fen)
         best_score = -1
         best_moves = []
         for move_uci in moves:

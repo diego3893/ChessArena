@@ -6,7 +6,10 @@
 对照答案：agents/examples/minimax_agent.py（深度 3 + alpha-beta）。
 """
 
+import chess
+
 from chessarena import Agent
+from agents.examples.minimax_agent import LocalPosition
 
 MATE = 100000
 VALUE = {"P": 100, "N": 320, "B": 330, "R": 500, "Q": 900, "K": 0}
@@ -29,6 +32,7 @@ class MyMinimax(Agent):
     depth = 2
 
     def choose_move(self, state):
+        state = LocalPosition(chess.Board(state.fen))  # 学生自己的搜索沙盘
         best_move, best_score = None, None
         for move in state.legal_moves:
             score = self.minimax(state.apply(move), self.depth - 1)

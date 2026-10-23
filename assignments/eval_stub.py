@@ -4,7 +4,9 @@
     python -m chessarena test assignments/eval_stub.py --vs builtin:greedy --games 10
 """
 
-from chessarena import Agent
+import chess
+
+from chessarena import Agent, State
 
 VALUE = {"P": 100, "N": 320, "B": 330, "R": 500, "Q": 900, "K": 0}
 
@@ -34,9 +36,13 @@ class MyEvalAgent(Agent):
         best_move = None
         best_score = None
         sign = 1 if state.turn == "w" else -1  # 统一成"我方视角"
-        for move in state.legal_moves:
-            child = state.apply(move)           # 新快照，不影响真实对局
+        board = chess.Board(state.fen)  # 学生自己的规则库和沙盘
+        for candidate in list(board.legal_moves):
+            move = candidate.uci()
+            board.push(candidate)
+            child = State(board)
             score = sign * evaluate(child)
+            board.pop()
             if best_score is None or score > best_score:
                 best_move, best_score = move, score
         return best_move

@@ -16,6 +16,7 @@ import chess
 import chess.pgn
 
 from .board import Board
+from .player import Player
 from .errors import (
     ChessArenaTimeout,
     GameOverError,
@@ -32,6 +33,7 @@ START_FEN = chess.STARTING_FEN
 
 #: 当前"谁在落子"的上下文。平台在驱动某一方时设置它，``submit`` 据此判断是否 ``-3``。
 _side_ctx = contextvars.ContextVar("chessarena_side", default=None)
+_request_ctx = contextvars.ContextVar("chessarena_request", default=None)
 
 #: 对外支持的事件名（《API总表》§8）
 EVENTS = ("move", "illegal", "opponent_move", "game_over", "timeout", "retry")
@@ -107,11 +109,15 @@ class Game:
         self._logger = logger
         self.rejected: list[dict] = []  # 被拒记录，联赛"非法率"用
         self._rng = random.Random(seed)
+        self._lock = threading.RLock()
+        terminal = self._terminal()
+        if terminal is not None:
+            self._over_reason, self._result = terminal
 
         for agent, color in ((white, "w"), (black, "b")):
             if agent is None:
                 continue
-            agent.game = self
+            agent.game = self.player(color)
             agent.color = color
             agent.on_game_start(self.state, color)
 
@@ -120,11 +126,42 @@ class Game:
     # ------------------------------------------------------------------
     @property
     def board(self) -> Board:
-        return Board(self._board)
+        return Board._live(lambda: self.state)
 
     @property
     def state(self) -> State:
-        return State(self._board.copy(stack=True), self._history, self._last_error)
+        with self._lock:
+            return State(self._board, self._history, self._last_error, result=self._result,
+                         start_fen=self.start_fen, game_id=self.game_id,
+                         over_reason=self._over_reason, over=self.over)
+
+    def player(self, side):
+        """训练和比赛共用的受限选手接口。"""
+        if side not in ("w", "b"):
+            raise ValueError("side须为w或b")
+
+        def submit(move, *, strict=False):
+            with self._lock:
+                request = _request_ctx.get()
+                if request is not None and (request[0] is not self or
+                        request[1] != self._generation or request[3].is_set() or
+                        time.monotonic() >= request[2]):
+                    if strict:
+                        raise NotYourTurnError("该次思考已结束或超时")
+                    return Result(RC.NOT_YOUR_TURN, "该次思考已结束或超时", None)
+                with self.acting_as(side):
+                    return self.submit(move, strict=strict)
+
+        def resign():
+            with self._lock:
+                request = _request_ctx.get()
+                if request is not None and (request[0] is not self or
+                        request[1] != self._generation or request[3].is_set() or
+                        time.monotonic() >= request[2]):
+                    return Result(RC.NOT_YOUR_TURN, "该次思考已结束或超时", None)
+                return self.resign(side)
+
+        return Player(side, lambda: self.state, submit, resign, lambda: self.clock(side))
 
     @property
     def turn(self) -> str:
@@ -159,7 +196,8 @@ class Game:
     # ------------------------------------------------------------------
     def submit(self, move, *, strict=False) -> Result:
         """落子。``strict=True`` 时把失败返回码转成异常。"""
-        result = self._submit(move)
+        with self._lock:
+            result = self._submit(move)
         if strict and not result.ok:
             raise self._as_exception(result)
         return result
@@ -206,6 +244,7 @@ class Game:
         self._history.append(played)
         self._last_error = None
         self._generation += 1
+        self._deadline = None
 
         result = Result(RC.OK, "落子成功：%s" % played, played)
         self._emit("move", played, result)
@@ -240,6 +279,7 @@ class Game:
             done += 1
         if done:
             self._last_error = None
+            self._generation += 1
         return done > 0
 
     def reset(self, fen=None):
@@ -252,6 +292,10 @@ class Game:
         self._result = None
         self._over_reason = None
         self._deadline = None
+        self._generation += 1
+        terminal = self._terminal()
+        if terminal is not None:
+            self._over_reason, self._result = terminal
 
     # ------------------------------------------------------------------
     # 驱动：单步 / 跑到结束
@@ -334,7 +378,8 @@ class Game:
 
     def to_json(self) -> dict:
         state = self.state
-        return {
+        payload = state.to_json()
+        payload.update({
             "game_id": self.game_id,
             "start_fen": self.start_fen,
             "fen": state.fen,
@@ -343,7 +388,6 @@ class Game:
             "history": list(state.history),
             "history_san": self._san_history(),
             "captured": self._captured(),
-            "legal_moves": list(state.legal_moves),
             "last_move": self._history[-1] if self._history else None,
             "is_check": state.is_check,
             "over": self.over,
@@ -352,7 +396,8 @@ class Game:
             "last_error": state.last_error,
             "white": getattr(self.white, "name", None),
             "black": getattr(self.black, "name", None),
-        }
+        })
+        return payload
 
     def _san_history(self) -> list[str]:
         """把走过的着法翻成 SAN（前端记谱用，避免在 JS 里重写规则）。"""
@@ -418,10 +463,12 @@ class Game:
             if self._generation != generation:
                 # 层 2：AI 自己在 choose_move 里 submit 过了
                 return Result(RC.OK, "AI 已自行落子：%s" % (self._history[-1],), self._history[-1])
+            if self.over:
+                return Result(RC.GAME_OVER, "对局已结束", None)
             if move is None:
                 return self._dispose(side, "forfeit")
 
-            result = self.submit(move)
+            result = move if isinstance(move, Result) and not move.ok else self.submit(move)
             if result.ok:
                 return result
             if result.code == RC.GAME_OVER:
@@ -438,12 +485,17 @@ class Game:
 
     def _ask(self, agent, side, seconds):
         """向 agent 要一步，带硬超时（内置档位走快路径）。"""
+        state = self.state
+        request = (self, self._generation, time.monotonic()+seconds, threading.Event())
         if getattr(agent, "fast_local", False):
             token = _side_ctx.set(side)
+            request_token = _request_ctx.set(request)
             started = time.monotonic()
             try:
-                move = agent.choose_move(self.state)
+                move = agent.choose_move(state)
             finally:
+                request[3].set()
+                _request_ctx.reset(request_token)
                 _side_ctx.reset(token)
             if time.monotonic() - started > seconds:
                 raise ChessArenaTimeout("思考超时")
@@ -454,14 +506,16 @@ class Game:
 
         def run():
             _side_ctx.set(side)
+            _request_ctx.set(request)
             try:
-                box["move"] = agent.choose_move(self.state)
+                box["move"] = agent.choose_move(state)
             except BaseException as exc:  # 学生代码的异常要带回主线程
                 box["error"] = exc
 
         thread = threading.Thread(target=ctx.run, args=(run,), daemon=True, name="chessarena-agent")
         thread.start()
         thread.join(seconds)
+        request[3].set()
         if thread.is_alive():
             raise ChessArenaTimeout("思考超时（%.2fs 未返回）" % (seconds,))
         if "error" in box:
@@ -478,7 +532,7 @@ class Game:
         else:  # error / forfeit：没有"替走一步"的语义，直接判负
             policy = "forfeit"
         if policy == "random":
-            legal = list(self.state.legal_moves)
+            legal = sorted(m.uci() for m in self._board.legal_moves)
             if legal:
                 substitute = self._rng.choice(legal)
                 result = self.submit(substitute)
@@ -536,14 +590,7 @@ class Game:
             return "非法着法：%s 是%s的%s，现在轮到%s走" % (
                 from_sq, owner, _PIECE_NAMES[piece.symbol()], _SIDE_TEXT[self.turn]
             )
-        targets = [m.uci()[2:4] for m in self._board.legal_moves if m.uci().startswith(from_sq)]
-        if not targets:
-            return "非法着法：%s 的%s无路可走（自己王被将/被别住/规则限制）" % (
-                from_sq, _PIECE_NAMES[piece.symbol()]
-            )
-        return "非法着法：%s 的%s不能走到 %s（可走：%s）" % (
-            from_sq, _PIECE_NAMES[piece.symbol()], to_sq, "、".join(sorted(set(targets)))
-        )
+        return "非法着法：%s到%s不符合走子规则或会使己方王受将" % (from_sq, to_sq)
 
     def _as_exception(self, result):
         if result.code in (RC.ILLEGAL_MOVE, RC.BAD_FORMAT):

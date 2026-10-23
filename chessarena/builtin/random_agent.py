@@ -5,6 +5,8 @@
 
 import random
 
+import chess
+
 from ..core.agent import Agent
 
 
@@ -24,7 +26,7 @@ class RandomAgent(Agent):
         return self._rng
 
     def choose_move(self, state):
-        moves = state.legal_moves
+        moves = sorted(m.uci() for m in chess.Board(state.fen).legal_moves)
         if not moves:
             return None
         return self._random().choice(moves)

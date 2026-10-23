@@ -61,6 +61,7 @@ class Session:
         self._steps = 0
         self._stalls = 0
         self._last_error = None
+        self._revision = 0
         self._heartbeat = float(heartbeat)
         self._build_game()
         self._driver = threading.Thread(
@@ -121,14 +122,20 @@ class Session:
 
     def snapshot(self) -> dict:
         with self._lock:
-            payload = self._game.to_json()
-            payload["human"] = {"w": self._is_human("w"), "b": self._is_human("b")}
-            payload["players"] = {"w": self._spec_text(self.white_spec),
-                                  "b": self._spec_text(self.black_spec)}
-            payload["paused"] = self._paused
-            payload["speed"] = self._speed
-            payload["timeout"] = self.arena.timeout
-            return payload
+            return self._snapshot_unlocked()
+
+    def _snapshot_unlocked(self) -> dict:
+        """会话锁已由调用方或等待学生线程的驱动持有时使用。"""
+        payload = self._game.to_json()
+        payload["human"] = {"w": self._is_human("w"), "b": self._is_human("b")}
+        payload["api"] = {"w": self._is_api("w"), "b": self._is_api("b")}
+        payload["players"] = {"w": self._spec_text(self.white_spec),
+                              "b": self._spec_text(self.black_spec)}
+        payload["paused"] = self._paused
+        payload["speed"] = self._speed
+        payload["timeout"] = self.arena.timeout
+        payload["revision"] = self._revision
+        return payload
 
     @staticmethod
     def _spec_text(spec):
@@ -152,23 +159,31 @@ class Session:
             {"name": info.name, "path": info.path, "spec": info.spec}
             for info in (self.arena.agents() or [])
         ]
-        return {"human": True, "builtin": self.arena.builtins(), "agents": agents}
+        return {"human": True, "api": True, "builtin": self.arena.builtins(), "agents": agents}
 
     # ------------------------------------------------------------------
-    def submit(self, move) -> Result:
-        """人类落子；轮到 AI 时返回 ``-3``。"""
+    def submit(self, move, *, side=None) -> Result:
+        """人类/API提交提案；执棋颜色和走子权均由服务端检查。"""
         with self._lock:
             game = self._game
             if game.over:
                 return Result(RC.GAME_OVER, "对局已结束（%s）" % (game.over_reason,), None)
-            side = game.turn
-            if not self._is_human(side):
+            if side is not None and side not in ("w", "b"):
+                return Result(RC.BAD_FORMAT, "side须为w或b", None)
+            if side is not None and side != game.turn:
+                return Result(RC.NOT_YOUR_TURN, "还没轮到你走棋", None)
+            turn = game.turn
+            if self._is_api(turn) and side is None:
+                return Result(RC.NOT_YOUR_TURN, "API选手提交时必须指定side（w或b）", None)
+            if not self._is_human(turn) and not self._is_api(turn):
                 return Result(
                     RC.NOT_YOUR_TURN,
-                    "现在是 AI 回合（%s），等它走" % ("白方" if side == "w" else "黑方",),
+                    "现在是 AI 回合（%s），等它走" % ("白方" if turn == "w" else "黑方",),
                     None,
                 )
-            with game.acting_as(side):
+            if self._paused:
+                return Result(RC.NOT_YOUR_TURN, "对局已暂停", None)
+            with game.acting_as(turn):
                 return game.submit(move)
 
     def reset(self, fen=None) -> Result:
@@ -179,6 +194,7 @@ class Session:
             except ValueError as exc:
                 return Result(RC.BAD_FORMAT, "起始 FEN 不合法：%s" % (exc,), None)
             self._paused = False
+            self._revision += 1
             self.hub.push({"type": "reset", "state": self.snapshot()})
             return Result(RC.OK, "已重开", None)
 
@@ -194,7 +210,7 @@ class Session:
                 if speed is not None:
                     self._speed = max(0.05, float(speed))
             elif action == "step":
-                if not game.over and not self._is_human(game.turn):
+                if not game.over and not self._is_manual(game.turn):
                     game.step()
             elif action == "undo":
                 # 退到人类回合：人机模式一步悔棋 = 退两步（自己 + AI 应手）
@@ -215,6 +231,7 @@ class Session:
                 self._paused = False
             else:
                 raise ValueError("未知动作：%r（可用 pause/resume/step/speed/undo/resign/new）" % (action,))
+            self._revision += 1
             state = self.snapshot()
             message = {"type": "control", "paused": self._paused, "speed": self._speed, "state": state}
             self.hub.push(message)
@@ -253,18 +270,28 @@ class Session:
         agent = game.white if side == "w" else game.black
         return bool(getattr(agent, "is_human", False))
 
+    def _is_api(self, side) -> bool:
+        agent = self._game.white if side == "w" else self._game.black
+        return bool(getattr(agent, "is_api", False))
+
+    def _is_manual(self, side) -> bool:
+        return self._is_human(side) or self._is_api(side)
+
     # --- 事件 → 广播 ---------------------------------------------------
     def _on_move(self, move, result):
+        self._revision += 1
+        # 学生线程submit时，驱动正持会话锁等待其返回；回调不能再次取锁。
         self.hub.push({"type": "move", "move": move, "ply": self._game.ply,
-                       "state": self.snapshot()})
+                       "state": self._snapshot_unlocked()})
 
     def _on_illegal(self, move, result):
         self.hub.push({"type": "illegal", "move": move, "code": result.code,
                        "reason": result.reason})
 
     def _on_game_over(self, result, reason):
+        self._revision += 1
         self.hub.push({"type": "game_over", "result": result, "reason": reason,
-                       "state": self.snapshot()})
+                       "state": self._snapshot_unlocked()})
 
     def _on_retry(self, side, attempt, result):
         self.hub.push({"type": "retry", "side": side, "attempt": attempt,
@@ -279,7 +306,7 @@ class Session:
                     if self._stop:
                         return
                     game = self._game
-                    if not self._paused and not game.over and not self._is_human(game.turn):
+                    if not self._paused and not game.over and not self._is_manual(game.turn):
                         before = game.ply
                         game.step()
                         progressed = game.ply != before or game.over

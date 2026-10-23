@@ -1,17 +1,38 @@
 """完整样例：minimax + alpha-beta，只用平台的 ``State`` 接口。
 
-它不 import python-chess，只用 `state.board / state.legal_moves / state.apply`，
-所以可以原样复制到 `agents/my_agent.py` 改成你自己的。
+平台仅提供State数据；本学生示例自行导入python-chess生成动作和推演。
 
 运行：``python -m chessarena test agents/examples/minimax_agent.py --vs builtin:greedy --games 10``
 """
 
 import time
 
+import chess
+
 from chessarena import Agent
 
 VALUE = {"P": 100, "N": 320, "B": 330, "R": 500, "Q": 900, "K": 0}
 MATE = 100000
+
+
+class LocalPosition:
+    """学生自己的搜索沙盘，不属于平台输入接口。"""
+
+    def __init__(self, board):
+        self.position = board
+        self.board = tuple(tuple(board.piece_at(chess.square(f, r)).symbol()
+                                 if board.piece_at(chess.square(f, r)) else "."
+                                 for f in range(8)) for r in range(7, -1, -1))
+        self.turn = "w" if board.turn else "b"
+        self.is_game_over = board.is_game_over(claim_draw=True)
+        outcome = board.outcome(claim_draw=True)
+        self.result = outcome.result() if outcome else None
+        self.legal_moves = tuple(sorted(move.uci() for move in board.legal_moves))
+
+    def apply(self, move):
+        child = self.position.copy()
+        child.push_uci(move)
+        return LocalPosition(child)
 
 
 def piece_at(state, square):
@@ -43,6 +64,7 @@ class MinimaxStudent(Agent):
     depth = 3
 
     def choose_move(self, state):
+        state = LocalPosition(chess.Board(state.fen))
         started = time.monotonic()
         best, best_score = None, None
         alpha = -10 ** 9

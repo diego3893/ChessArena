@@ -23,13 +23,14 @@ class TestStudentApiSurface(unittest.TestCase):
 
     def test_state_members(self):
         state = State(chess.Board())
-        for attr in ("fen", "turn", "board", "legal_moves", "history", "ply", "is_check",
+        for attr in ("fen", "turn", "board", "castling_rights", "ep_square", "history", "ply", "is_check",
                      "is_game_over", "result", "last_error"):
             self.assertTrue(hasattr(state, attr), msg=attr)
-        for method in ("apply", "pretty", "copy"):
+        for method in ("pretty", "copy"):
             self.assertTrue(callable(getattr(state, method)), msg=method)
         self.assertEqual(state.turn, "w")
-        self.assertEqual(len(state.legal_moves), 20)
+        self.assertFalse(hasattr(state, "legal_moves"))
+        self.assertFalse(hasattr(state, "apply"))
         self.assertEqual(len(state.board), 8)
         self.assertEqual(len(state.board[0]), 8)
         self.assertTrue(state.pretty())
@@ -37,13 +38,13 @@ class TestStudentApiSurface(unittest.TestCase):
 
     def test_board_members(self):
         board = Board(chess.Board())
-        for attr in ("fen", "turn", "legal_moves", "is_check", "matrix", "ascii"):
+        for attr in ("fen", "turn", "is_check", "matrix", "ascii"):
             self.assertTrue(hasattr(board, attr), msg=attr)
-        for method in ("get", "piece_at", "moves_from", "is_empty"):
+        for method in ("get", "piece_at", "is_empty"):
             self.assertTrue(callable(getattr(board, method)), msg=method)
         self.assertEqual(board.piece_at("e2"), "P")
         self.assertEqual(board.get(4, 1), "P")
-        self.assertEqual(board.moves_from("g1"), ["f3", "h3"])
+        self.assertFalse(hasattr(board, "moves_from"))
         self.assertTrue(board.is_empty(4, 3))
 
     def test_game_members(self):
@@ -75,7 +76,7 @@ class TestStudentApiSurface(unittest.TestCase):
 
     def test_client_members(self):
         client = Client("http://127.0.0.1:1", side="w")
-        for method in ("state", "board", "submit", "legal_moves", "wait_my_turn", "reset"):
+        for method in ("state", "board", "submit", "wait_my_turn", "reset"):
             self.assertTrue(callable(getattr(client, method)), msg=method)
         self.assertEqual(client.side, "w")
 
