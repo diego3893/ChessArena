@@ -460,7 +460,7 @@ class TestPlayers(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertTrue(body["human"])
             self.assertEqual(body["builtin"], ["random", "greedy", "minimax2", "minimax3", "stockfish"])
-            self.assertEqual(body["agents"], [])
+            self.assertTrue({"agents/A.py", "agents/B.py"}.issubset({a["spec"] for a in body["agents"]}))
 
     def test_snapshot_exposes_current_players(self):
         with ServerFixture("human", "builtin:greedy") as fx:

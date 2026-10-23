@@ -106,20 +106,29 @@ class Arena:
                        if white is not None else None)
         black_agent = (resolve_player(black, seed=self.seed, stockfish=self.stockfish)
                        if black is not None else None)
-        game = Game(
-            white_agent,
-            black_agent,
-            fen=fen or START_FEN,
-            timeout=self.timeout if timeout is None else float(timeout),
-            max_retries=self.max_retries if max_retries is None else int(max_retries),
-            on_retry_exhausted=self.on_retry_exhausted,
-            on_timeout=self.on_timeout,
-            game_id=game_id,
-            live=self.live,
-            record=self.record,
-            seed=self.seed,
-            logger=self.logger,
-        )
+        try:
+            game = Game(
+                white_agent,
+                black_agent,
+                fen=fen or START_FEN,
+                timeout=self.timeout if timeout is None else float(timeout),
+                max_retries=self.max_retries if max_retries is None else int(max_retries),
+                on_retry_exhausted=self.on_retry_exhausted,
+                on_timeout=self.on_timeout,
+                game_id=game_id,
+                live=self.live,
+                record=self.record,
+                seed=self.seed,
+                logger=self.logger,
+            )
+        except Exception:
+            for agent in (white_agent, black_agent):
+                if agent is not None:
+                    try:
+                        agent.close()
+                    except Exception:
+                        pass
+            raise
         self._games.append(game)
         if self.record:
             path = self.runs_dir / ("%s.jsonl" % (game.game_id,))
