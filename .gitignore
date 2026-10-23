@@ -11,4 +11,5 @@ results/
 
 # 第三方大文件 / 上游克隆：按需从官方渠道重新获取
 thirdparty/chessground/
+thirdparty/stockfish/
 thirdparty/*.zip

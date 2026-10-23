@@ -78,7 +78,7 @@ python -m chessarena serve
 | L2 | 贪心 | 每步吃价值最高的子，否则随机 | 会白吃子，但常自己送子 |
 | L3 | minimax 深度 2 | 纯 minimax + 子力评估 | 像刚学棋的人 |
 | L4 | minimax 深度 3 + alpha-beta | 同样评估函数，加了剪枝 | 能看出两步杀，班级中位数 |
-| L5 | Stockfish | 限制到 1200–2000 分（可调） | 认真下打不过 |
+| L5 | Stockfish | 限制到 1320–3190 分（`UCI_Elo`，默认 1600；每步 0.6s） | 认真下打不过 |
 
 > **这 5 档不是黑盒**：L1–L4 每一档都是 `builtin/` 目录下一个 50–150 行的独立文件。
 > 这就是给学生的第一份教材——"L4 比 L3 只多了 alpha-beta 十几行，但快 5 倍"。
@@ -385,7 +385,7 @@ ChessArena/                    # 项目根（仓库名）
 │   ├── client.py              # 跨进程 Client
 │   └── cli.py                 # python -m chessarena play / serve
 ├── vendor/chessground/        # 前端预构建产物（零构建，直接引）
-├── thirdparty/                # chessground 源码克隆 + Stockfish 压缩包
+├── thirdparty/                # chessground 源码克隆 + Stockfish（已解压）
 ├── tests/                     # unittest：内核 + 服务 + 前端接线
 ├── runs/                      # 录像 runs/<game_id>.jsonl、日志
 ├── results/                   # 联赛报告（阶段 5）
@@ -442,13 +442,13 @@ A：`config.yaml` 里改 `port: 8001`，或 `python -m chessarena serve --port 8
 A：棋盘变灰说明对局已结束；或者轮到 AI 走、你在点自己的子。
 
 **Q：学生的 AI 一步要 30 秒，一直判负。**
-A：把 `config.yaml` 的 `timeout` 调到 10。但**别只为自己的 AI 调**——联赛里所有 AI 同一标准。
+A：把 `config.yaml` 的 `timeout` 调到 10（或 `python -m chessarena serve --timeout` 暂无此参数时改默认值）。但**别只为自己的 AI 调**——联赛里所有 AI 同一标准。
 
 **Q：L5 的 Stockfish 打不开？**
-A：首次启动会提示"未检测到 Stockfish，是否自动下载（约 50MB）"。选是；或手动下载后把路径填进 `config.yaml`。不想用可以从 `builtin` 列表里删掉。
+A：引擎已随包放在 `thirdparty/stockfish/stockfish-windows-x86-64-universal.exe`（zip 解压即可）。找不到时按顺序取：环境变量 `CHESSARENA_STOCKFISH` → 该默认路径。棋力用 `CHESSARENA_STOCKFISH_ELO=1800`（1320–3190），每步用时用 `CHESSARENA_STOCKFISH_MOVETIME=0.6`。不想用就把 `builtin:stockfish` 从对局双方里换掉。
 
 **Q：前端能改吗？**
-A：`web/` 是静态文件（chessground 的预构建产物 + 我们的页面脚本），没有任何构建步骤。改样式直接改 `web/*.css`，改布局改 `web/app.js`，刷新即生效。
+A：`chessarena/web/ui/` 是三个静态文件（chessground 的预构建产物从 `/vendor` 引），没有任何构建步骤。改样式直接改 `style.css`，改交互改 `app.js`，刷新即生效。
 
 **Q：能换成中国象棋吗？**
 A：架构里规则层是插件，换棋种只需要新增一个 `Game` 实现（着法生成、胜负判定、FEN 表示）。UI 的棋盘渲染是独立组件，但要重画棋盘格线和棋子字形。这是 v2 的事。

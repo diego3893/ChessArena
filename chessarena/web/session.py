@@ -160,6 +160,14 @@ class Session:
 
     # ------------------------------------------------------------------
     def _build_game(self):
+        old = getattr(self, "_game", None)
+        if old is not None:
+            for agent in (old.white, old.black):
+                if agent is not None and not getattr(agent, "is_human", False):
+                    try:
+                        agent.close()
+                    except Exception:
+                        pass
         game = self.arena.new_game(white=self.white_spec, black=self.black_spec, fen=self.fen)
         game.on("move", self._on_move)
         game.on("illegal", self._on_illegal)

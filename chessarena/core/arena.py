@@ -125,8 +125,8 @@ class Arena:
         return tuple(self._games)
 
     def builtins(self) -> list[str]:
-        """已实现的内置对手（阶段 1 只有 L1/L2）。"""
-        from .builtin import available
+        """已注册的内置对手（L1–L5）。"""
+        from ..builtin import available
 
         return available()
 
