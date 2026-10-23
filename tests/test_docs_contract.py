@@ -1,6 +1,6 @@
 """文档契约：学生 API 文档里写的成员必须真实存在。
 
-学生照着 `docs/chessarena-学生API.md` 写代码，所以这份测试专门盯"文档写了但代码没有"
+学生照着 `docs/API调用规范.md` 写代码，所以这份测试专门盯"文档写了但代码没有"
 （或反过来改了名）的漂移。
 """
 
@@ -90,11 +90,11 @@ class TestStudentApiSurface(unittest.TestCase):
     def test_student_doc_exists_and_lists_core_types(self):
         from pathlib import Path
 
-        doc = Path("docs") / "chessarena-学生API.md"
+        doc = Path("docs") / "API调用规范.md"
         self.assertTrue(doc.is_file())
         text = doc.read_text(encoding="utf-8")
         for token in ("Agent", "State", "Result", "Game", "Client", "submit",
-                      "legal_moves", "apply", "wait_my_turn"):
+                      "castling_rights", "ep_square", "wait_my_turn"):
             self.assertIn(token, text, msg=token)
 
     def test_markdown_links_resolve(self):
