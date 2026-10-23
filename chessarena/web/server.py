@@ -1,4 +1,4 @@
-"""FastAPI 服务：HTTP 3 端点 + WebSocket 推送（协议见《API总表》§16）。"""
+"""FastAPI服务：实时对局、只读PGN回放与WebSocket推送。"""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from ..web.session import Session
+from .replay import RecordStore, parse_pgn
 
 _STATUS = {0: 200, -1: 400, -2: 400, -3: 409, -4: 410}
 _SENTINEL = object()
@@ -47,6 +48,7 @@ def create_app(session: Session) -> FastAPI:
 
     app = FastAPI(title="ChessArena", version=__version__, lifespan=lifespan)
     app.state.session = session
+    records = RecordStore({"runs": session.arena.runs_dir, "results": ROOT_DIR / "results"})
 
     if UI_DIR.is_dir():
         app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
@@ -84,6 +86,24 @@ def create_app(session: Session) -> FastAPI:
     @app.get("/pgn")
     def get_pgn():
         return PlainTextResponse(session.game.pgn())
+
+    @app.get("/replay/records")
+    def get_records():
+        return JSONResponse(records.list(), headers=_NO_CACHE)
+
+    @app.get("/replay/records/{record_id:path}")
+    def get_record(record_id: str):
+        try:
+            return JSONResponse(parse_pgn(records.read(record_id)), headers=_NO_CACHE)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.post("/replay/parse")
+    def post_replay(payload: dict = Body(default=None)):
+        try:
+            return JSONResponse(parse_pgn((payload or {}).get("pgn")), headers=_NO_CACHE)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
 
     # --- 写 -----------------------------------------------------------
     @app.post("/move")
